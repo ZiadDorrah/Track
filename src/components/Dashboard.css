@@ -1,0 +1,25 @@
+/* Scoped Dashboard Styling */
+.metrics-card {
+    transition: transform var(--transition-normal), border-color var(--transition-normal), box-shadow var(--transition-normal);
+}
+
+.metrics-card:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 12px 24px -8px rgba(0, 0, 0, 0.5), 
+                0 0 20px -5px var(--accent-glow);
+}
+
+/* Custom internal scrollbar for dashboard priority list */
+.priority-list-container::-webkit-scrollbar {
+    width: 4px;
+}
+.priority-list-container::-webkit-scrollbar-track {
+    background: transparent;
+}
+.priority-list-container::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 2px;
+}
+.priority-list-container::-webkit-scrollbar-thumb:hover {
+    background: var(--accent);
+}

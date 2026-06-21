@@ -1,0 +1,210 @@
+@import "tailwindcss";
+
+@theme {
+  --font-heading: 'Outfit', sans-serif;
+  --font-body: 'Plus Jakarta Sans', sans-serif;
+
+  --color-bg-darker: var(--bg-darker);
+  --color-bg-dark: var(--bg-dark);
+  --color-bg-card: var(--bg-card);
+  --color-border-color: var(--border-color);
+  --color-border-hover: var(--border-hover);
+  
+  --color-text-primary: var(--text-primary);
+  --color-text-secondary: var(--text-secondary);
+  --color-text-muted: var(--text-muted);
+
+  --color-todo: var(--color-todo);
+  --color-progress: var(--color-progress);
+  --color-done: var(--color-done);
+  --color-overdue: var(--color-overdue);
+  
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-glow: var(--accent-glow);
+}
+
+:root {
+    /* Fonts */
+    --font-heading: 'Outfit', sans-serif;
+    --font-body: 'Plus Jakarta Sans', sans-serif;
+
+    /* Base Colors (Deep Space Dark Theme) */
+    --bg-darker: #06070a;
+    --bg-dark: #0a0b10;
+    --bg-card: rgba(18, 20, 29, 0.55);
+    --border-color: rgba(255, 255, 255, 0.08);
+    --border-hover: rgba(255, 255, 255, 0.16);
+
+    /* Text Colors */
+    --text-primary: #f8fafc;
+    --text-secondary: #cbd5e1;
+    --text-muted: #64748b;
+
+    /* Semantic Colors */
+    --color-todo: #3b82f6; /* Blue */
+    --color-progress: #a855f7; /* Purple */
+    --color-done: #10b981; /* Green */
+    --color-overdue: #f43f5e; /* Rose */
+    
+    /* Theme Accents (Default: Violet) */
+    --accent-h: 265;
+    --accent-s: 89%;
+    --accent-l: 65%;
+    --accent: hsl(var(--accent-h), var(--accent-s), var(--accent-l));
+    --accent-glow: hsla(var(--accent-h), var(--accent-s), var(--accent-l), 0.2);
+    --accent-hover: hsl(var(--accent-h), var(--accent-s), calc(var(--accent-l) - 6%));
+    
+    /* Transitions */
+    --transition-fast: 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+    --transition-normal: 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+    
+    /* Glassmorphism Styles */
+    --glass-blur: 24px;
+    --glass-shadow: 0 15px 35px -5px rgba(0, 0, 0, 0.6), 0 5px 15px -5px rgba(0, 0, 0, 0.4);
+}
+
+/* Theme Variant Overrides */
+html[data-theme="teal"] {
+    --accent-h: 175;
+    --accent-s: 89%;
+    --accent-l: 45%;
+}
+
+html[data-theme="blue"] {
+    --accent-h: 210;
+    --accent-s: 89%;
+    --accent-l: 55%;
+}
+
+html[data-theme="rose"] {
+    --accent-h: 340;
+    --accent-s: 89%;
+    --accent-l: 60%;
+}
+
+@layer base {
+    * {
+        box-sizing: border-box;
+        font-family: var(--font-body);
+    }
+
+    body {
+        background-color: var(--bg-darker);
+        color: var(--text-primary);
+        min-height: 100vh;
+        overflow-x: hidden;
+        position: relative;
+    }
+}
+
+/* Custom Scrollbars */
+::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+::-webkit-scrollbar-track {
+    background: rgba(0, 0, 0, 0.25);
+}
+::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.08);
+    border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+    background: var(--accent);
+    box-shadow: 0 0 8px var(--accent);
+}
+
+/* Global Shared Utilities */
+.glass {
+    background: var(--bg-card);
+    backdrop-filter: blur(var(--glass-blur));
+    -webkit-backdrop-filter: blur(var(--glass-blur));
+    border: 1px solid var(--border-color);
+    box-shadow: var(--glass-shadow);
+    border-radius: 16px;
+    transition: border-color var(--transition-normal), box-shadow var(--transition-normal);
+}
+
+.glass:hover {
+    border-color: var(--border-hover);
+}
+
+/* Chrome Autofill Styling Override */
+input:-webkit-autofill,
+input:-webkit-autofill:hover, 
+input:-webkit-autofill:focus, 
+input:-webkit-autofill:active {
+    -webkit-box-shadow: 0 0 0 1000px #0b0c12 inset !important;
+    -webkit-text-fill-color: #f8fafc !important;
+    transition: background-color 5000s ease-in-out 0s;
+    border-color: var(--accent) !important;
+}
+
+/* Input Styles Focus Helper */
+input, select, textarea {
+    outline: none;
+    transition: all var(--transition-fast);
+}
+
+input:focus, select:focus, textarea:focus {
+    border-color: var(--accent) !important;
+    box-shadow: 0 0 0 3px var(--accent-glow) !important;
+    background-color: rgba(0, 0, 0, 0.3) !important;
+}
+
+/* Ambient Background Glows */
+.glow-bg {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    z-index: -1;
+    pointer-events: none;
+    overflow: hidden;
+}
+
+.glow-sphere {
+    position: absolute;
+    border-radius: 50%;
+    filter: blur(120px);
+    opacity: 0.22;
+    mix-blend-mode: screen;
+}
+
+.glow-sphere-1 {
+    width: 600px;
+    height: 600px;
+    background: hsl(var(--accent-h), var(--accent-s), var(--accent-l));
+    top: -12%;
+    right: -12%;
+    animation: pulseGlow 18s infinite alternate;
+}
+
+.glow-sphere-2 {
+    width: 700px;
+    height: 700px;
+    background: hsl(210, 92%, 58%);
+    bottom: -18%;
+    left: -12%;
+    animation: pulseGlow 24s infinite alternate-reverse;
+}
+
+.glow-sphere-3 {
+    width: 400px;
+    height: 400px;
+    background: hsl(340, 92%, 58%);
+    top: 35%;
+    left: 25%;
+    opacity: 0.09;
+}
+
+@keyframes pulseGlow {
+    0% { transform: translate(0, 0) scale(1); }
+    100% { transform: translate(80px, -60px) scale(1.2); }
+}
+
+.glow-text {
+    text-shadow: 0 0 25px var(--accent-glow);
+}

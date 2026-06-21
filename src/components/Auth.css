@@ -1,0 +1,12 @@
+/* Scoped Auth Styling */
+.auth-card {
+    transition: all var(--transition-normal);
+    box-shadow: 0 20px 40px -10px rgba(0, 0, 0, 0.7), 
+                0 0 50px -10px var(--accent-glow);
+}
+
+.auth-card:hover {
+    border-color: var(--border-hover);
+    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.8), 
+                0 0 60px -5px var(--accent-glow);
+}

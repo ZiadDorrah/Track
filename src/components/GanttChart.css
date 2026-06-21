@@ -1,0 +1,53 @@
+/* Scoped Gantt Chart Styling */
+.gantt-chart-wrapper::-webkit-scrollbar {
+    height: 8px;
+}
+.gantt-chart-wrapper::-webkit-scrollbar-track {
+    background: rgba(0, 0, 0, 0.25);
+}
+.gantt-chart-wrapper::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.08);
+    border-radius: 4px;
+}
+.gantt-chart-wrapper::-webkit-scrollbar-thumb:hover {
+    background: var(--accent);
+}
+
+.gantt-task-bar {
+    transition: transform var(--transition-fast), box-shadow var(--transition-fast), border-color var(--transition-fast);
+}
+
+.gantt-task-bar:hover {
+    transform: scaleY(1.06);
+}
+
+.gantt-task-bar.status-todo {
+    background: linear-gradient(135deg, rgba(59, 130, 246, 0.22) 0%, rgba(37, 99, 235, 0.38) 100%);
+}
+.gantt-task-bar.status-in-progress {
+    background: linear-gradient(135deg, rgba(168, 85, 247, 0.22) 0%, rgba(147, 51, 234, 0.38) 100%);
+}
+.gantt-task-bar.status-done {
+    background: linear-gradient(135deg, rgba(16, 185, 129, 0.18) 0%, rgba(5, 150, 105, 0.3) 100%);
+}
+
+.gantt-task-bar.is-overdue {
+    animation: pulseOverdueBorder 2s infinite alternate;
+}
+
+@keyframes pulseOverdueBorder {
+    0% { box-shadow: 0 0 5px rgba(244, 63, 94, 0.2), 0 2px 4px rgba(0,0,0,0.1); }
+    100% { box-shadow: 0 0 12px rgba(244, 63, 94, 0.5), 0 2px 4px rgba(0,0,0,0.2); }
+}
+
+.gantt-task-bar.fallback-dates {
+    border: 1.5px dashed rgba(234, 179, 8, 0.5);
+    background: repeating-linear-gradient(
+        45deg,
+        rgba(234, 179, 8, 0.08),
+        rgba(234, 179, 8, 0.08) 8px,
+        rgba(234, 179, 8, 0.15) 8px,
+        rgba(234, 179, 8, 0.15) 16px
+    );
+    color: #fef08a;
+}

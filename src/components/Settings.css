@@ -1,0 +1,15 @@
+/* Scoped Settings Styling */
+.accent-dot {
+    transition: all var(--transition-normal);
+}
+
+.accent-dot:hover {
+    transform: scale(1.1);
+    box-shadow: 0 0 15px rgba(255, 255, 255, 0.3);
+}
+
+.accent-dot.active {
+    border-color: white;
+    transform: scale(1.15);
+    box-shadow: 0 0 20px rgba(255, 255, 255, 0.5);
+}

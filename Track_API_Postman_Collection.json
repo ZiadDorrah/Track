@@ -1,0 +1,428 @@
+{
+	"info": {
+		"_postman_id": "8c44b931-e129-4d64-9640-bd4465494d45",
+		"name": "Track. API Collection",
+		"description": "API collection for testing the Multi-Project Task Tracker application. Handles authentication, project CRUD, task CRUD, and Windows startup settings. Note: Cookie-based sessions are used. Log in first, and Postman will automatically send the session cookie on subsequent requests.",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"item": [
+		{
+			"name": "Authentication",
+			"item": [
+				{
+					"name": "Sign Up (Register User)",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"username\": \"testuser\",\n    \"password\": \"password123\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/auth/signup",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"auth",
+								"signup"
+							]
+						},
+						"description": "Registers a new user and initializes their empty profile database inside the `data/` directory."
+					},
+					"response": []
+				},
+				{
+					"name": "Login (Sign In)",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"username\": \"testuser\",\n    \"password\": \"password123\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/auth/login",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"auth",
+								"login"
+							]
+						},
+						"description": "Authenticates user credentials, generates a session token, and responds with a `session_token` cookie. Subsequent requests in Postman will automatically include this cookie."
+					},
+					"response": []
+				},
+				{
+					"name": "Get Current User (Me)",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/auth/me",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"auth",
+								"me"
+							]
+						},
+						"description": "Retrieves user details corresponding to the active session cookie. Verifies that user is successfully logged in."
+					},
+					"response": []
+				},
+				{
+					"name": "Logout",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/auth/logout",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"auth",
+								"logout"
+							]
+						},
+						"description": "Clears the active session from the server and deletes the local `session_token` cookie."
+					},
+					"response": []
+				}
+			],
+			"description": "Endpoints to manage user logins, signups, logs and sessions."
+		},
+		{
+			"name": "Projects",
+			"item": [
+				{
+					"name": "Get All Projects",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/projects",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"projects"
+							]
+						},
+						"description": "Gets all projects and associated tasks belonging to the currently logged in user."
+					},
+					"response": []
+				},
+				{
+					"name": "Create Project",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"name\": \"E-Commerce Website\",\n    \"description\": \"Building online store platform\",\n    \"url\": \"https://mystore.com\",\n    \"github\": \"https://github.com/myuser/mystore\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/projects",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"projects"
+							]
+						},
+						"description": "Creates a new project item in the logged-in user's file workspace."
+					},
+					"response": []
+				},
+				{
+					"name": "Update Project Details",
+					"request": {
+						"method": "PUT",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"name\": \"E-Commerce Web Application (V2)\",\n    \"description\": \"Building online store platform with stripe integration\",\n    \"url\": \"https://v2.mystore.com\",\n    \"github\": \"https://github.com/myuser/mystore-v2\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/projects/:id",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"projects",
+								":id"
+							],
+							"variable": [
+								{
+									"key": "id",
+									"value": "INSERT_PROJECT_ID_HERE",
+									"description": "The unique UUID of the project"
+								}
+							]
+						},
+						"description": "Modifies project metadata such as title, descriptions, websites, and repos."
+					},
+					"response": []
+				},
+				{
+					"name": "Delete Project Workspace",
+					"request": {
+						"method": "DELETE",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/projects/:id",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"projects",
+								":id"
+							],
+							"variable": [
+								{
+									"key": "id",
+									"value": "INSERT_PROJECT_ID_HERE",
+									"description": "The unique UUID of the project"
+								}
+							]
+						},
+						"description": "Deletes the project along with all tasks inside it from the user's data file."
+					},
+					"response": []
+				}
+			],
+			"description": "Endpoints to manage project workspace elements."
+		},
+		{
+			"name": "Tasks",
+			"item": [
+				{
+					"name": "Create Task in Project",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"title\": \"Implement Stripe Checkout\",\n    \"description\": \"Integrate checkout button on frontend and configure webhook on backend.\",\n    \"status\": \"todo\",\n    \"priority\": \"high\",\n    \"scheduleDate\": \"2026-06-16\",\n    \"deadline\": \"2026-06-25\",\n    \"reminder\": true\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/projects/:projectId/tasks",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"projects",
+								":projectId",
+								"tasks"
+							],
+							"variable": [
+								{
+									"key": "projectId",
+									"value": "INSERT_PROJECT_ID_HERE",
+									"description": "The unique UUID of the target project"
+								}
+							]
+						},
+						"description": "Appends a new task item to a specific project. Tasks support custom descriptions, statuses ('todo', 'in-progress', 'done'), priorities ('low', 'medium', 'high'), deadlines, and alarm reminder parameters."
+					},
+					"response": []
+				},
+				{
+					"name": "Update Task Details",
+					"request": {
+						"method": "PUT",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"title\": \"Implement Stripe Checkout Flow\",\n    \"description\": \"Fully test Stripe elements checkout flow and verify transactions.\",\n    \"status\": \"in-progress\",\n    \"priority\": \"high\",\n    \"scheduleDate\": \"2026-06-16\",\n    \"deadline\": \"2026-06-22\",\n    \"reminder\": true\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/projects/:projectId/tasks/:taskId",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"projects",
+								":projectId",
+								"tasks",
+								":taskId"
+							],
+							"variable": [
+								{
+									"key": "projectId",
+									"value": "INSERT_PROJECT_ID_HERE",
+									"description": "The unique UUID of the project"
+								},
+								{
+									"key": "taskId",
+									"value": "INSERT_TASK_ID_HERE",
+									"description": "The unique UUID of the task"
+								}
+							]
+						},
+						"description": "Modifies task attributes. Can be used for standard title edits, moving task columns (changing status), or rescheduling deadlines."
+					},
+					"response": []
+				},
+				{
+					"name": "Delete Task",
+					"request": {
+						"method": "DELETE",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/projects/:projectId/tasks/:taskId",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"projects",
+								":projectId",
+								"tasks",
+								":taskId"
+							],
+							"variable": [
+								{
+									"key": "projectId",
+									"value": "INSERT_PROJECT_ID_HERE"
+								},
+								{
+									"key": "taskId",
+									"value": "INSERT_TASK_ID_HERE"
+								}
+							]
+						},
+						"description": "Deletes the specified task from the target project."
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Settings (Startup)",
+			"item": [
+				{
+					"name": "Get Windows Startup Status",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/settings/startup",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"settings",
+								"startup"
+							]
+						},
+						"description": "Returns whether the hidden Windows Startup VBScript shortcut file exists in the Windows Startup directory."
+					},
+					"response": []
+				},
+				{
+					"name": "Configure Windows Startup",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"enabled\": true\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/settings/startup",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"settings",
+								"startup"
+							]
+						},
+						"description": "Configures startup: if true, backend dynamically creates the VBScript file in `%APPDATA%/Microsoft/Windows/Start Menu/Programs/Startup`. If false, removes it."
+					},
+					"response": []
+				}
+			]
+		}
+	],
+	"event": [
+		{
+			"listen": "prerequest",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					""
+				]
+			}
+		},
+		{
+			"listen": "test",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					""
+				]
+			}
+		}
+	],
+	"variable": [
+		{
+			"key": "baseUrl",
+			"value": "http://localhost:3000",
+			"type": "string"
+		}
+	]
+}
