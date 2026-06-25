@@ -1,0 +1,33 @@
+.matrix-quadrant {
+  border-radius: 16px;
+  background: var(--bg-card);
+  backdrop-filter: blur(var(--glass-blur));
+  box-shadow: var(--glass-shadow);
+  display: flex;
+  flex-col: column;
+  min-height: 380px;
+}
+
+.matrix-quadrant.scale-\[1\.01\] {
+  transform: scale(1.01);
+}
+
+.matrix-task-card {
+  position: relative;
+  background: rgba(15, 17, 28, 0.45);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: 10px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+  transition: all 0.2s ease-in-out;
+}
+
+.matrix-task-card:hover {
+  background: rgba(15, 17, 28, 0.65);
+  border-color: rgba(255, 255, 255, 0.12);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.3);
+  transform: translateY(-1px);
+}
+
+.matrix-task-card:active {
+  cursor: grabbing;
+}

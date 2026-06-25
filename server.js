@@ -309,7 +309,11 @@ app.post('/api/projects/:projectId/tasks', authenticate, (req, res) => {
     timerStarted: req.body.timerStarted || null,
     recurring: req.body.recurring || 'none',
     pomodoroSessions: req.body.pomodoroSessions || [],
-    createdAt: new Date().toISOString()
+    createdAt: new Date().toISOString(),
+    urgent: req.body.urgent !== undefined ? req.body.urgent : false,
+    important: req.body.important !== undefined ? req.body.important : false,
+    customFields: req.body.customFields || {},
+    completedAt: req.body.completedAt || (status === 'done' ? new Date().toISOString() : null)
   };
 
   project.tasks.push(newTask);
@@ -338,6 +342,12 @@ app.put('/api/projects/:projectId/tasks/:taskId', authenticate, (req, res) => {
     return res.status(404).json({ error: 'Task not found.' });
   }
 
+  if (status === 'done' && task.status !== 'done') {
+    task.completedAt = new Date().toISOString();
+  } else if (status && status !== 'done' && task.status === 'done') {
+    task.completedAt = null;
+  }
+
   task.title = title;
   task.description = description || '';
   task.status = status || 'todo';
@@ -351,6 +361,10 @@ app.put('/api/projects/:projectId/tasks/:taskId', authenticate, (req, res) => {
   if (req.body.timerStarted !== undefined) task.timerStarted = req.body.timerStarted;
   if (req.body.recurring !== undefined) task.recurring = req.body.recurring;
   if (req.body.pomodoroSessions !== undefined) task.pomodoroSessions = req.body.pomodoroSessions;
+  if (req.body.urgent !== undefined) task.urgent = req.body.urgent;
+  if (req.body.important !== undefined) task.important = req.body.important;
+  if (req.body.customFields !== undefined) task.customFields = req.body.customFields;
+  if (req.body.completedAt !== undefined) task.completedAt = req.body.completedAt;
 
   saveUserData(req.user.id, userData);
   res.json(task);

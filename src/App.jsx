@@ -6,6 +6,9 @@ import Settings from './components/Settings/Settings.jsx';
 import { ProjectModal, TaskModal } from './components/Modals/Modals.jsx';
 import Pomodoro from './components/Pomodoro/Pomodoro.jsx';
 import GlobalSearch from './components/GlobalSearch/GlobalSearch.jsx';
+import PriorityMatrix from './components/PriorityMatrix/PriorityMatrix.jsx';
+import WeeklyReview from './components/WeeklyReview/WeeklyReview.jsx';
+import Analytics from './components/Analytics/Analytics.jsx';
 
 function escapeHTML(str) {
   if (!str) return '';
@@ -348,7 +351,13 @@ export default function App() {
     }
   };
 
-  const handleRecurringTaskGeneration = async (task) => {
+  const handleRecurringTaskGeneration = async (task, explicitProjectId = null) => {
+    let projectId = explicitProjectId;
+    if (!projectId) {
+      const foundProj = projects.find(p => p.tasks.some(t => t.id === task.id));
+      projectId = foundProj ? foundProj.id : activeProjectId;
+    }
+
     const shiftDate = (dateStr, pattern) => {
       if (!dateStr) return '';
       const date = new Date(dateStr);
@@ -386,7 +395,7 @@ export default function App() {
     };
 
     try {
-      const response = await fetch(`/api/projects/${activeProjectId}/tasks`, {
+      const response = await fetch(`/api/projects/${projectId}/tasks`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(clonedTask),
@@ -401,8 +410,17 @@ export default function App() {
     }
   };
 
-  const handleTaskUpdate = async (taskId, updatedFields, silent = false) => {
-    const project = projects.find(p => p.id === activeProjectId);
+  const handleTaskUpdate = async (taskId, updatedFields, silent = false, explicitProjectId = null) => {
+    let projectId = explicitProjectId || activeProjectId;
+    let project = projects.find(p => p.id === projectId);
+    
+    if (!project || !project.tasks.some(t => t.id === taskId)) {
+      project = projects.find(p => p.tasks.some(t => t.id === taskId));
+      if (project) {
+        projectId = project.id;
+      }
+    }
+    
     if (!project) return;
     const task = project.tasks.find(t => t.id === taskId);
     if (!task) return;
@@ -411,7 +429,7 @@ export default function App() {
     const updatedTask = { ...task, ...updatedFields };
 
     try {
-      const response = await fetch(`/api/projects/${activeProjectId}/tasks/${taskId}`, {
+      const response = await fetch(`/api/projects/${projectId}/tasks/${taskId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(updatedTask),
@@ -426,7 +444,7 @@ export default function App() {
       }
 
       if (statusTransitionedToDone && task.recurring && task.recurring !== 'none') {
-        await handleRecurringTaskGeneration(task);
+        await handleRecurringTaskGeneration(task, projectId);
       }
 
       await fetchProjects();
@@ -692,6 +710,40 @@ export default function App() {
           >
             <i className="fa-solid fa-chart-line text-xs"></i> <span>Dashboard</span>
           </button>
+          
+          <button
+            onClick={() => { setActiveView('priority-matrix'); setActiveProjectId(null); }}
+            className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm font-heading font-medium transition-all text-left cursor-pointer ${
+              activeView === 'priority-matrix'
+                ? 'bg-accent text-white shadow-[0_4px_15px_var(--accent-glow)]'
+                : 'text-text-secondary hover:text-white hover:bg-white/4'
+            }`}
+          >
+            <i className="fa-solid fa-table-cells text-xs"></i> <span>Priority Matrix</span>
+          </button>
+
+          <button
+            onClick={() => { setActiveView('weekly-review'); setActiveProjectId(null); }}
+            className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm font-heading font-medium transition-all text-left cursor-pointer ${
+              activeView === 'weekly-review'
+                ? 'bg-accent text-white shadow-[0_4px_15px_var(--accent-glow)]'
+                : 'text-text-secondary hover:text-white hover:bg-white/4'
+            }`}
+          >
+            <i className="fa-solid fa-calendar-week text-xs"></i> <span>Weekly Review</span>
+          </button>
+
+          <button
+            onClick={() => { setActiveView('analytics'); setActiveProjectId(null); }}
+            className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm font-heading font-medium transition-all text-left cursor-pointer ${
+              activeView === 'analytics'
+                ? 'bg-accent text-white shadow-[0_4px_15px_var(--accent-glow)]'
+                : 'text-text-secondary hover:text-white hover:bg-white/4'
+            }`}
+          >
+            <i className="fa-solid fa-chart-column text-xs"></i> <span>Analytics</span>
+          </button>
+
           <button
             onClick={() => { setActiveView('settings'); setActiveProjectId(null); }}
             className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm font-heading font-medium transition-all text-left cursor-pointer ${
@@ -768,6 +820,27 @@ export default function App() {
           />
         )}
 
+        {activeView === 'priority-matrix' && (
+          <PriorityMatrix
+            projects={projects}
+            onTaskUpdate={handleTaskUpdate}
+            onTaskEdit={(task, projId) => { setActiveProjectId(projId); setTaskModal({ isOpen: true, data: task }); }}
+          />
+        )}
+
+        {activeView === 'weekly-review' && (
+          <WeeklyReview
+            projects={projects}
+            onTaskUpdate={handleTaskUpdate}
+          />
+        )}
+
+        {activeView === 'analytics' && (
+          <Analytics
+            projects={projects}
+          />
+        )}
+
         {activeView === 'project-detail' && activeProject && (
           <ProjectDetail
             project={activeProject}
@@ -808,6 +881,7 @@ export default function App() {
         isOpen={taskModal.isOpen}
         onClose={() => setTaskModal({ isOpen: false, data: null })}
         task={taskModal.data}
+        project={taskModal.data ? projects.find(p => p.tasks.some(t => t.id === taskModal.data.id)) : projects.find(p => p.id === activeProjectId)}
         onSubmit={handleTaskSubmit}
         showToast={showToast}
       />

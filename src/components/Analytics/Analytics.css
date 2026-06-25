@@ -1,0 +1,8 @@
+/* Custom visual overrides for Analytics page */
+svg rect:hover {
+  filter: drop-shadow(0 0 8px var(--accent));
+}
+
+svg circle {
+  transition: r var(--transition-fast) ease-in-out;
+}

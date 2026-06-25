@@ -189,6 +189,27 @@ function TaskCard({ task, projectId, onEdit, onDelete, onTaskUpdate, onStartTime
         </div>
       )}
 
+      {/* Custom Fields & Eisenhower Tags */}
+      {(task.urgent || task.important || (task.customFields && Object.keys(task.customFields).length > 0)) && (
+        <div className="flex flex-wrap gap-1 mt-0.5 select-none">
+          {task.urgent && (
+            <span className="px-1.5 py-0.5 rounded text-[8px] font-extrabold uppercase bg-red-500/12 text-[#fda4af] border border-red-500/20 flex items-center gap-0.5" title="Urgent">
+              <i className="fa-solid fa-fire text-[7px] text-red-400"></i> Urgent
+            </span>
+          )}
+          {task.important && (
+            <span className="px-1.5 py-0.5 rounded text-[8px] font-extrabold uppercase bg-amber-500/12 text-[#fef08a] border border-amber-500/20 flex items-center gap-0.5" title="Important">
+              <i className="fa-solid fa-star text-[7px] text-amber-400"></i> Important
+            </span>
+          )}
+          {task.customFields && Object.entries(task.customFields).map(([k, val]) => (
+            <span key={k} className="px-1.5 py-0.5 rounded text-[8px] font-semibold bg-white/5 text-text-secondary border border-white/8 truncate max-w-[130px]" title={`${k}: ${val}`}>
+              {k}: {val}
+            </span>
+          ))}
+        </div>
+      )}
+
       {/* Play/Pause Timer & Logged Summary */}
       <div className="flex justify-between items-center bg-white/[0.01] border border-white/4 p-1.5 rounded-lg">
         <div className="flex items-center gap-2">
@@ -556,8 +577,10 @@ export default function ProjectDetail({
                       key={t.id}
                       className="flex border-b border-white/[0.04] h-12 items-center hover:bg-white/[0.01] transition-colors"
                     >
-                      <div className="w-44 px-4 truncate font-semibold text-white" title={t.title}>
-                        {t.title}
+                      <div className="w-44 px-4 truncate font-semibold text-white flex items-center gap-1.5" title={t.title}>
+                        <span className="truncate">{t.title}</span>
+                        {t.urgent && <i className="fa-solid fa-fire text-red-400 text-[10px]" title="Urgent"></i>}
+                        {t.important && <i className="fa-solid fa-star text-amber-400 text-[10px]" title="Important"></i>}
                       </div>
                       <div className="flex-1 px-4 truncate text-text-secondary" title={t.description}>
                         {t.description ? t.description : <span className="text-text-muted italic">None</span>}

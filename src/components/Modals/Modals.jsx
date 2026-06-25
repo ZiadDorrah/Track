@@ -133,7 +133,7 @@ export function ProjectModal({ isOpen, onClose, project, onSubmit, showToast }) 
   );
 }
 
-export function TaskModal({ isOpen, onClose, task, onSubmit, showToast }) {
+export function TaskModal({ isOpen, onClose, task, project, onSubmit, showToast }) {
   const [title, setTitle] = useState('');
   const [desc, setDesc] = useState('');
   const [status, setStatus] = useState('todo');
@@ -144,6 +144,25 @@ export function TaskModal({ isOpen, onClose, task, onSubmit, showToast }) {
   const [recurring, setRecurring] = useState('none');
   const [subtasks, setSubtasks] = useState([]);
   const [newSubtaskText, setNewSubtaskText] = useState('');
+
+  // Tier 2 states
+  const [urgent, setUrgent] = useState(false);
+  const [important, setImportant] = useState(false);
+  const [customFields, setCustomFields] = useState({});
+  const [newFieldName, setNewFieldName] = useState('');
+  const [newFieldValue, setNewFieldValue] = useState('');
+
+  // Collect unique custom field keys in project for autocomplete
+  const existingCustomKeys = React.useMemo(() => {
+    if (!project || !project.tasks) return [];
+    const keys = new Set();
+    project.tasks.forEach(t => {
+      if (t.customFields) {
+        Object.keys(t.customFields).forEach(k => keys.add(k));
+      }
+    });
+    return Array.from(keys);
+  }, [project, isOpen]);
 
   useEffect(() => {
     const pad = (num) => String(num).padStart(2, '0');
@@ -160,6 +179,9 @@ export function TaskModal({ isOpen, onClose, task, onSubmit, showToast }) {
       setReminder(task.reminder || false);
       setRecurring(task.recurring || 'none');
       setSubtasks(task.subtasks || []);
+      setUrgent(task.urgent || false);
+      setImportant(task.important || false);
+      setCustomFields(task.customFields || {});
     } else {
       setTitle('');
       setDesc('');
@@ -170,7 +192,12 @@ export function TaskModal({ isOpen, onClose, task, onSubmit, showToast }) {
       setReminder(false);
       setRecurring('none');
       setSubtasks([]);
+      setUrgent(false);
+      setImportant(false);
+      setCustomFields({});
     }
+    setNewFieldName('');
+    setNewFieldValue('');
   }, [task, isOpen]);
 
   if (!isOpen) return null;
@@ -195,6 +222,28 @@ export function TaskModal({ isOpen, onClose, task, onSubmit, showToast }) {
     setSubtasks(subtasks.filter(s => s.id !== id));
   };
 
+  const handleAddCustomField = () => {
+    const key = newFieldName.trim();
+    const val = newFieldValue.trim();
+    if (!key) {
+      showToast('Field name is required.', 'error');
+      return;
+    }
+    setCustomFields({ ...customFields, [key]: val });
+    setNewFieldName('');
+    setNewFieldValue('');
+  };
+
+  const handleRemoveCustomField = (key) => {
+    const next = { ...customFields };
+    delete next[key];
+    setCustomFields(next);
+  };
+
+  const handleUpdateCustomFieldValue = (key, val) => {
+    setCustomFields({ ...customFields, [key]: val });
+  };
+
   const handleSubmit = (e) => {
     e.preventDefault();
     const cleanTitle = title.trim();
@@ -213,12 +262,15 @@ export function TaskModal({ isOpen, onClose, task, onSubmit, showToast }) {
       reminder,
       recurring,
       subtasks,
+      urgent,
+      important,
+      customFields,
     });
   };
 
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
-      <div className="w-full max-w-2xl glass border border-white/8 p-6 flex flex-col gap-5 relative animate-fade-in">
+      <div className="w-full max-w-2xl glass border border-white/8 p-6 flex flex-col gap-5 relative animate-fade-in max-h-[90vh] overflow-y-auto">
         <div className="flex justify-between items-center">
           <h2 className="text-xl font-bold font-heading text-white">
             {task ? 'Modify Task' : 'Create Task'}
@@ -305,6 +357,93 @@ export function TaskModal({ isOpen, onClose, task, onSubmit, showToast }) {
                 ))}
               </div>
             )}
+          </div>
+
+          {/* Eisenhower Quadrants Checks */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-3 bg-white/[0.01] border border-white/4 rounded-lg">
+            <label className="flex items-center gap-2.5 text-xs text-text-secondary cursor-pointer select-none font-semibold">
+              <input
+                type="checkbox"
+                checked={urgent}
+                onChange={(e) => setUrgent(e.target.checked)}
+                className="w-4 h-4 rounded border-white/10 accent-accent cursor-pointer"
+              />
+              <span>🔥 Urgent Task (Eisenhower Matrix)</span>
+            </label>
+            <label className="flex items-center gap-2.5 text-xs text-text-secondary cursor-pointer select-none font-semibold">
+              <input
+                type="checkbox"
+                checked={important}
+                onChange={(e) => setImportant(e.target.checked)}
+                className="w-4 h-4 rounded border-white/10 accent-accent cursor-pointer"
+              />
+              <span>⭐ Important Task (Eisenhower Matrix)</span>
+            </label>
+          </div>
+
+          {/* Custom fields section */}
+          <div className="flex flex-col gap-2">
+            <label className="text-xs font-semibold text-text-secondary flex items-center gap-1.5">
+              <i className="fa-solid fa-tags text-accent"></i> Custom Task Fields
+            </label>
+            {Object.keys(customFields).length > 0 && (
+              <div className="flex flex-col gap-2 p-2 border border-white/6 rounded-lg bg-black/15">
+                {Object.entries(customFields).map(([k, val]) => (
+                  <div key={k} className="flex items-center gap-2">
+                    <span className="text-[10px] font-bold text-accent min-w-[90px] bg-accent/10 border border-accent/20 px-2 py-1 rounded truncate text-center">{k}</span>
+                    <input
+                      type="text"
+                      value={val}
+                      onChange={(e) => handleUpdateCustomFieldValue(k, e.target.value)}
+                      className="flex-1 bg-black/25 border border-white/6 text-white px-2.5 py-1 rounded text-xs focus:outline-none"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveCustomField(k)}
+                      className="text-text-muted hover:text-red-400 p-1 transition-colors cursor-pointer text-xs"
+                      title="Delete Field"
+                    >
+                      <i className="fa-solid fa-trash-can text-[10px]"></i>
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div className="flex gap-2 items-center">
+              <div className="relative flex-1">
+                <input
+                  type="text"
+                  list="existing-custom-keys"
+                  value={newFieldName}
+                  onChange={(e) => setNewFieldName(e.target.value)}
+                  placeholder="Field name (e.g. Client)"
+                  className="w-full bg-black/20 border border-white/6 text-white px-2.5 py-1.5 rounded-lg text-xs transition-all focus:outline-none"
+                />
+                <datalist id="existing-custom-keys">
+                  {existingCustomKeys.map(k => <option key={k} value={k} />)}
+                </datalist>
+              </div>
+              <input
+                type="text"
+                value={newFieldValue}
+                onChange={(e) => setNewFieldValue(e.target.value)}
+                placeholder="Value (e.g. Acme Corp)"
+                className="flex-1 bg-black/20 border border-white/6 text-white px-2.5 py-1.5 rounded-lg text-xs transition-all focus:outline-none"
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    handleAddCustomField();
+                  }
+                }}
+              />
+              <button
+                type="button"
+                onClick={handleAddCustomField}
+                className="px-3.5 py-1.5 bg-accent hover:bg-accent-hover text-white rounded-lg text-xs font-semibold cursor-pointer"
+              >
+                + Add
+              </button>
+            </div>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
