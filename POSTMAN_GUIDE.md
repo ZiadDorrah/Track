@@ -61,9 +61,29 @@ Before testing, make sure your local server is running:
 1. Open **Create Task in Project** in the **Tasks** folder.
 2. Look at the request path: `{{baseUrl}}/api/projects/:projectId/tasks`.
 3. In the **Variables** tab (or Path Variables table), replace the `projectId` value with the UUID of the project you copied in Step 4.
-4. Edit the task JSON body if desired, then click **Send**.
-5. The response returns the task with its own unique UUID (`id`). **Copy this task `id`** to test editing or deleting.
-6. Open **Update Task Details** and populate both `projectId` and `taskId` in the variables table, edit status (e.g. from `todo` to `in-progress` or `done`), and click **Send**.
+4. Go to the **Body** tab. You'll see the task JSON. Note that tasks now support advanced Pro properties:
+   ```json
+   {
+       "title": "Design Database Schema",
+       "description": "Create projects and tasks tables.",
+       "status": "todo",
+       "priority": "high",
+       "scheduleDate": "2026-06-23T09:00",
+       "deadline": "2026-06-25T17:00",
+       "reminder": true,
+       "recurring": "weekly", // Options: "none", "daily", "weekly", "monthly"
+       "subtasks": [
+           { "id": "sub1", "text": "Draft project fields", "completed": false },
+           { "id": "sub2", "text": "Draft task fields", "completed": false }
+       ],
+       "timeLogged": 0, // In seconds
+       "timeSessions": [], // Session log history
+       "timerStarted": null, // ISO string when active, else null
+       "pomodoroSessions": [] // Logged pomodoro focus periods
+   }
+   ```
+5. Click **Send**. The response returns the task with its own unique UUID (`id`). **Copy this task `id`** to test editing or deleting.
+6. Open **Update Task Details** and populate both `projectId` and `taskId` in the variables table, edit status (e.g. from `todo` to `in-progress` or `done`), and click **Send**. Note that changing status to `done` on a task with `"recurring": "weekly"` will automatically generate a fresh cloned task forward in time.
 
 ### Step 6: Settings & Startup
 1. Open **Get Windows Startup Status** and click **Send**. It checks if the app is scheduled to run on startup.

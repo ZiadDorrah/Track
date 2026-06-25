@@ -8,12 +8,17 @@ All user databases are stored locally, prioritizing complete offline privacy.
 
 ## 🌟 Key Features
 
-*   **📊 Dynamic Dashboard:** Get instant overview of project progress, task ratios (To Do, In Progress, Done), active projects list, and due items.
+*   **📊 Dynamic Dashboard & Weekly Focus Summary:** Get instant overview of project progress, task ratios, immediate priorities, and a dynamic 7-day bar chart showing logged time.
 *   **📅 Interactive Gantt Chart:** Visualizes project timelines. Supports multi-project filtering, day/hour scheduling resolution, hover tooltips, and task editing directly from the timeline.
 *   **🔒 Secure Local Auth:** Local user registrations verified via unique salt generation and PBKDF2 SHA-512 password hashing. Secure cookie session storage (`session_token`) keeps you logged in.
-*   **📂 Private Local Database:** Zero cloud dependencies. All databases, projects, and task files are stored locally in the `data/` directory (automatically gitignored). **Note:** This folder and the root `users.json` registry file are automatically generated at server startup if they do not exist, ensuring a seamless experience when first running a cloned version of the repository.
+*   **📂 Private Local Database:** Zero cloud dependencies. All databases, projects, and task files are stored locally in the `data/` directory.
 *   **🎨 Custom Accent Themes:** Personalized aesthetics. Instantly toggle between accent themes (Violet, Teal, Rose, Blue, Amber, Emerald) via custom HSL-based CSS variables.
 *   **⚙️ Windows Boot Integration:** Schedule/unschedule automatic boot on login directly from the Settings UI. Writes a background VBScript process to your Windows Startup folder (`%APPDATA%`) to run the Node.js process silently.
+*   **📝 Sub-tasks & Checklists:** Break tasks into step-by-step items. Render completion progress bars and toggle checklists directly on Kanban cards.
+*   **⏱️ Precision Time Tracking:** Run live start/stop timers on task cards with smart auto-pause of other active timers, and maintain historical session logs.
+*   **🔄 Task Recurrence:** Configure daily, weekly, or monthly recurrence intervals that automatically clone tasks forward upon completion.
+*   **🔍 Global Ctrl+K Search Palette:** Trigger a glassmorphic command palette with `Ctrl+K` to search across all project names, task titles, and task descriptions.
+*   **🍅 Pomodoro Focus Timer:** Run 25m work / 5m break sessions linked to tasks, complete with arpeggio completion chimes and auto task time logging.
 
 ---
 
@@ -48,13 +53,29 @@ Track/
 │   └── user_<userId>.json            # User-specific projects & tasks
 ├── dist/                             # Compiled production assets
 ├── src/                              # React application source code
-│   ├── components/                   # React sub-components
-│   │   ├── Auth.jsx                  # Login/Signup forms & logic
-│   │   ├── Dashboard.jsx             # Statistics dashboard & summary lists
-│   │   ├── GanttChart.jsx            # Interactive SVG Gantt Chart timeline
-│   │   ├── Modals.jsx                # Project/Task Add/Edit overlays
-│   │   ├── ProjectDetail.jsx         # Board & List views, status columns
-│   │   └── Settings.jsx              # Theme picker & startup toggle
+│   ├── components/                   # Restructured sub-components
+│   │   ├── Auth/                     # Authentication components
+│   │   │   ├── Auth.jsx
+│   │   │   └── Auth.css
+│   │   ├── Dashboard/                # Dashboard & weekly time stats
+│   │   │   ├── Dashboard.jsx
+│   │   │   └── Dashboard.css
+│   │   ├── GanttChart/               # Timeline schedule visualization
+│   │   │   ├── GanttChart.jsx
+│   │   │   └── GanttChart.css
+│   │   ├── Modals/                   # Modals (Sub-tasks/Recurrence settings)
+│   │   │   ├── Modals.jsx
+│   │   │   └── Modals.css
+│   │   ├── ProjectDetail/            # Kanban board & checklists card
+│   │   │   ├── ProjectDetail.jsx
+│   │   │   └── ProjectDetail.css
+│   │   ├── Settings/                 # Accent themes & startup
+│   │   │   ├── Settings.jsx
+│   │   │   └── Settings.css
+│   │   ├── GlobalSearch/             # Command palette (Ctrl+K) component
+│   │   │   └── GlobalSearch.jsx
+│   │   └── Pomodoro/                 # Focus timer (Web Audio chime)
+│   │       └── Pomodoro.jsx
 │   ├── App.jsx                       # State coordination & navigation
 │   ├── main.jsx                      # App mount entry point
 │   └── index.css                     # Global styles, variables, scrollbars

@@ -303,6 +303,12 @@ app.post('/api/projects/:projectId/tasks', authenticate, (req, res) => {
     deadline: deadline || '',
     scheduleDate: scheduleDate || '',
     reminder: reminder !== undefined ? reminder : false,
+    subtasks: req.body.subtasks || [],
+    timeLogged: req.body.timeLogged || 0,
+    timeSessions: req.body.timeSessions || [],
+    timerStarted: req.body.timerStarted || null,
+    recurring: req.body.recurring || 'none',
+    pomodoroSessions: req.body.pomodoroSessions || [],
     createdAt: new Date().toISOString()
   };
 
@@ -339,6 +345,12 @@ app.put('/api/projects/:projectId/tasks/:taskId', authenticate, (req, res) => {
   task.deadline = deadline || '';
   task.scheduleDate = scheduleDate || '';
   task.reminder = reminder !== undefined ? reminder : false;
+  if (req.body.subtasks !== undefined) task.subtasks = req.body.subtasks;
+  if (req.body.timeLogged !== undefined) task.timeLogged = req.body.timeLogged;
+  if (req.body.timeSessions !== undefined) task.timeSessions = req.body.timeSessions;
+  if (req.body.timerStarted !== undefined) task.timerStarted = req.body.timerStarted;
+  if (req.body.recurring !== undefined) task.recurring = req.body.recurring;
+  if (req.body.pomodoroSessions !== undefined) task.pomodoroSessions = req.body.pomodoroSessions;
 
   saveUserData(req.user.id, userData);
   res.json(task);

@@ -1,5 +1,5 @@
 import React from 'react';
-import GanttChart from './GanttChart.jsx';
+import GanttChart from '../GanttChart/GanttChart.jsx';
 import './Dashboard.css';
 
 function formatDateTimeShort(dateStr) {
@@ -20,7 +20,7 @@ function formatDateTimeShort(dateStr) {
   return `${mm}/${dd}`;
 }
 
-export default function Dashboard({ projects, onProjectSelect, onTaskEdit, selectedGanttProjects, onSelectedGanttProjectsChange, escapeHTML }) {
+export default function Dashboard({ projects, onProjectSelect, onTaskEdit, onTaskUpdate, onStartTimer, onStopTimer, selectedGanttProjects, onSelectedGanttProjectsChange, escapeHTML }) {
   // Calculations
   const totalProjects = projects.length;
   let pendingTasksCount = 0;
@@ -30,9 +30,37 @@ export default function Dashboard({ projects, onProjectSelect, onTaskEdit, selec
   const todayStr = new Date(new Date().getTime() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16);
   const dateOnlyToday = new Date().toISOString().split('T')[0];
   const immediateTasks = [];
+  let totalPomodoros = 0;
+
+  // Calculate Weekly Time Log
+  const last7Days = [];
+  for (let i = 6; i >= 0; i--) {
+    const d = new Date();
+    d.setDate(d.getDate() - i);
+    last7Days.push({
+      dateStr: d.toISOString().split('T')[0],
+      dayName: d.toLocaleDateString('en-US', { weekday: 'short' }),
+      hours: 0
+    });
+  }
+
+  const focusableTasks = [];
 
   projects.forEach(p => {
     (p.tasks || []).forEach(t => {
+      // Sum Pomodoro sessions
+      totalPomodoros += (t.pomodoroSessions || []).length;
+
+      // Group time tracking sessions
+      (t.timeSessions || []).forEach(s => {
+        if (!s.endTime) return;
+        const datePart = s.endTime.split('T')[0];
+        const dayObj = last7Days.find(d => d.dateStr === datePart);
+        if (dayObj) {
+          dayObj.hours += (s.duration || 0) / 3600;
+        }
+      });
+
       if (t.status === 'done') {
         completedTasksCount++;
       } else {
@@ -52,6 +80,12 @@ export default function Dashboard({ projects, onProjectSelect, onTaskEdit, selec
             isDueToday
           });
         }
+
+        focusableTasks.push({
+          ...t,
+          projectId: p.id,
+          projectName: p.name
+        });
       }
     });
   });
@@ -65,8 +99,15 @@ export default function Dashboard({ projects, onProjectSelect, onTaskEdit, selec
     return (a.deadline || '9999') > (b.deadline || '9999') ? 1 : -1;
   });
 
+  // Sort focusable: high priority first
+  focusableTasks.sort((a, b) => (a.priority === 'high' ? -1 : (b.priority === 'high' ? 1 : 0)));
+  const displayFocusable = focusableTasks.slice(0, 5);
+
   // Limit to top 7
   const displayPriorities = immediateTasks.slice(0, 7);
+
+  const totalWeeklyHours = last7Days.reduce((sum, d) => sum + d.hours, 0).toFixed(1);
+  const maxHours = Math.max(...last7Days.map(d => d.hours), 1);
 
   return (
     <div className="flex flex-col gap-8 animate-fade-in">
@@ -198,6 +239,42 @@ export default function Dashboard({ projects, onProjectSelect, onTaskEdit, selec
           </div>
         </div>
 
+        {/* Weekly Productivity & Time Log */}
+        <div className="glass border border-white/6 p-6 flex flex-col h-[450px]">
+          <div className="flex justify-between items-center mb-5 select-none">
+            <h2 className="text-base font-bold font-heading text-white flex items-center gap-2">
+              <i className="fa-solid fa-chart-column text-accent glow-text"></i> Weekly Focus Summary
+            </h2>
+            <span className="text-xs font-bold text-accent bg-accent/15 px-2.5 py-1 rounded-full">
+              {totalWeeklyHours} hrs logged
+            </span>
+          </div>
+
+          <div className="flex-1 flex items-end gap-3 px-2 py-4 h-full relative">
+            {last7Days.map(day => {
+              const heightPercent = Math.min(100, Math.round((day.hours / maxHours) * 100));
+              return (
+                <div key={day.dateStr} className="flex flex-col items-center gap-2 h-full flex-1 justify-end">
+                  <div className="flex-1 w-full bg-white/[0.015] border border-white/5 rounded-xl flex flex-col justify-end relative group cursor-pointer overflow-visible min-h-[120px]">
+                    
+                    {/* The Bar */}
+                    <div 
+                      className="w-full bg-gradient-to-t from-accent to-[#a855f7] rounded-xl shadow-[0_0_10px_var(--accent-glow)] transition-all duration-500 ease-out" 
+                      style={{ height: `${heightPercent}%` }}
+                    />
+                    
+                    {/* Custom Premium Tooltip */}
+                    <div className="absolute opacity-0 group-hover:opacity-100 transition-all duration-200 bg-[#0f1016]/95 border border-white/12 text-white px-2 py-1 rounded-lg text-[9px] font-extrabold bottom-[calc(100%+5px)] left-1/2 -translate-x-1/2 pointer-events-none whitespace-nowrap shadow-xl transform translate-y-1 group-hover:translate-y-0 z-10">
+                      {day.hours.toFixed(2)} hrs
+                    </div>
+                  </div>
+                  <span className="text-[10px] font-bold text-text-muted select-none">{day.dayName}</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
         {/* Project Pulse */}
         <div className="glass border border-white/6 p-6 flex flex-col h-[450px]">
           <div className="flex justify-between items-center mb-5">
@@ -251,6 +328,66 @@ export default function Dashboard({ projects, onProjectSelect, onTaskEdit, selec
             )}
           </div>
         </div>
+
+        {/* Pomodoro Focus Zone */}
+        <div className="glass border border-white/6 p-6 flex flex-col h-[450px]">
+          <div className="flex justify-between items-center mb-5 select-none">
+            <h2 className="text-base font-bold font-heading text-white flex items-center gap-2">
+              <i className="fa-solid fa-hourglass-half text-accent glow-text"></i> Focus Zone
+            </h2>
+            <span className="text-xs font-bold text-amber-400 bg-amber-400/10 border border-amber-400/20 px-2.5 py-1 rounded-full">
+              {totalPomodoros} Focus Cycles
+            </span>
+          </div>
+
+          <div className="flex-1 flex flex-col gap-4 overflow-hidden">
+            <div className="p-4 bg-amber-500/10 border border-amber-500/20 rounded-xl flex items-center gap-3">
+              <div className="w-10 h-10 rounded-lg bg-amber-500/20 flex items-center justify-center text-amber-400 text-lg animate-pulse">
+                <i className="fa-solid fa-brain"></i>
+              </div>
+              <div className="flex-1">
+                <h4 className="text-xs font-bold text-white uppercase tracking-wide">Flow State Booster</h4>
+                <p className="text-[11px] text-text-secondary mt-0.5">Focus intensely on a task for 25 minutes. No distractions. Let your productivity surge.</p>
+              </div>
+            </div>
+
+            <div className="flex flex-col gap-2 overflow-y-auto flex-1 pr-1">
+              <span className="text-[9px] font-extrabold text-text-muted uppercase select-none tracking-wider mb-0.5">QUICK SELECT A TASK TO FOCUS ON</span>
+              {displayFocusable.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-6 text-center text-text-muted gap-2 border border-dashed border-white/4 rounded-xl flex-1">
+                  <i className="fa-solid fa-check text-xl opacity-20"></i>
+                  <p className="text-[11px]">All tasks completed! Excellent work.</p>
+                </div>
+              ) : (
+                displayFocusable.map(t => (
+                  <div
+                    key={t.id}
+                    className="flex justify-between items-center p-3 bg-white/[0.015] border border-white/6 rounded-xl hover:bg-white/[0.03] transition-all"
+                  >
+                    <div className="flex flex-col gap-0.5 overflow-hidden pr-3">
+                      <span className="text-xs font-semibold text-white truncate max-w-full">{t.title}</span>
+                      <span className="text-[9px] text-text-muted truncate max-w-full">
+                        <i className="fa-solid fa-folder text-[8px] mr-1"></i> {t.projectName}
+                      </span>
+                    </div>
+                    
+                    <button
+                      onClick={() => {
+                        const event = new CustomEvent('start-pomodoro-focus', { detail: { projectId: t.projectId, task: t } });
+                        window.dispatchEvent(event);
+                      }}
+                      className="px-2.5 py-1 rounded-lg bg-amber-500/10 hover:bg-amber-500/25 border border-amber-500/20 text-amber-400 hover:text-white text-[10px] font-bold cursor-pointer transition-all flex items-center gap-1.5 flex-shrink-0"
+                      title="Launch Pomodoro Focus"
+                    >
+                      <i className="fa-solid fa-hourglass-start text-[8px]"></i> Start
+                    </button>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+
       </div>
 
       {/* Gantt Chart widget */}

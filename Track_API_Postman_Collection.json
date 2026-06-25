@@ -236,7 +236,7 @@
 						"header": [],
 						"body": {
 							"mode": "raw",
-							"raw": "{\n    \"title\": \"Implement Stripe Checkout\",\n    \"description\": \"Integrate checkout button on frontend and configure webhook on backend.\",\n    \"status\": \"todo\",\n    \"priority\": \"high\",\n    \"scheduleDate\": \"2026-06-16\",\n    \"deadline\": \"2026-06-25\",\n    \"reminder\": true\n}",
+							"raw": "{\n    \"title\": \"Implement Stripe Checkout\",\n    \"description\": \"Integrate checkout button on frontend and configure webhook on backend.\",\n    \"status\": \"todo\",\n    \"priority\": \"high\",\n    \"scheduleDate\": \"2026-06-16T09:00\",\n    \"deadline\": \"2026-06-25T17:00\",\n    \"reminder\": true,\n    \"recurring\": \"weekly\",\n    \"subtasks\": [\n        { \"id\": \"s1\", \"text\": \"Setup Stripe account\", \"completed\": false },\n        { \"id\": \"s2\", \"text\": \"Implement client UI checkout button\", \"completed\": false }\n    ],\n    \"timeLogged\": 0,\n    \"timeSessions\": [],\n    \"timerStarted\": null,\n    \"pomodoroSessions\": []\n}",
 							"options": {
 								"raw": {
 									"language": "json"
@@ -273,7 +273,7 @@
 						"header": [],
 						"body": {
 							"mode": "raw",
-							"raw": "{\n    \"title\": \"Implement Stripe Checkout Flow\",\n    \"description\": \"Fully test Stripe elements checkout flow and verify transactions.\",\n    \"status\": \"in-progress\",\n    \"priority\": \"high\",\n    \"scheduleDate\": \"2026-06-16\",\n    \"deadline\": \"2026-06-22\",\n    \"reminder\": true\n}",
+							"raw": "{\n    \"title\": \"Implement Stripe Checkout Flow\",\n    \"description\": \"Fully test Stripe elements checkout flow and verify transactions.\",\n    \"status\": \"in-progress\",\n    \"priority\": \"high\",\n    \"scheduleDate\": \"2026-06-16T09:00\",\n    \"deadline\": \"2026-06-22T17:00\",\n    \"reminder\": true,\n    \"recurring\": \"weekly\",\n    \"subtasks\": [\n        { \"id\": \"s1\", \"text\": \"Setup Stripe account\", \"completed\": true },\n        { \"id\": \"s2\", \"text\": \"Implement client UI checkout button\", \"completed\": false }\n    ],\n    \"timeLogged\": 1800,\n    \"timeSessions\": [\n        { \"id\": \"sess1\", \"startTime\": \"2026-06-16T09:00:00Z\", \"endTime\": \"2026-06-16T09:30:00Z\", \"duration\": 1800 }\n    ],\n    \"timerStarted\": null,\n    \"pomodoroSessions\": []\n}",
 							"options": {
 								"raw": {
 									"language": "json"

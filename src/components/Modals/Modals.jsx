@@ -141,6 +141,9 @@ export function TaskModal({ isOpen, onClose, task, onSubmit, showToast }) {
   const [scheduleDate, setScheduleDate] = useState('');
   const [deadline, setDeadline] = useState('');
   const [reminder, setReminder] = useState(false);
+  const [recurring, setRecurring] = useState('none');
+  const [subtasks, setSubtasks] = useState([]);
+  const [newSubtaskText, setNewSubtaskText] = useState('');
 
   useEffect(() => {
     const pad = (num) => String(num).padStart(2, '0');
@@ -155,6 +158,8 @@ export function TaskModal({ isOpen, onClose, task, onSubmit, showToast }) {
       setScheduleDate(normalizeToDateTimeLocal(task.scheduleDate));
       setDeadline(normalizeToDateTimeLocal(task.deadline));
       setReminder(task.reminder || false);
+      setRecurring(task.recurring || 'none');
+      setSubtasks(task.subtasks || []);
     } else {
       setTitle('');
       setDesc('');
@@ -163,10 +168,32 @@ export function TaskModal({ isOpen, onClose, task, onSubmit, showToast }) {
       setScheduleDate(todayStr);
       setDeadline('');
       setReminder(false);
+      setRecurring('none');
+      setSubtasks([]);
     }
   }, [task, isOpen]);
 
   if (!isOpen) return null;
+
+  const handleAddSubtask = () => {
+    const text = newSubtaskText.trim();
+    if (!text) return;
+    const newSub = {
+      id: Date.now().toString() + Math.random().toString(36).substring(2, 5),
+      text,
+      completed: false
+    };
+    setSubtasks([...subtasks, newSub]);
+    setNewSubtaskText('');
+  };
+
+  const handleToggleSubtask = (id) => {
+    setSubtasks(subtasks.map(s => s.id === id ? { ...s, completed: !s.completed } : s));
+  };
+
+  const handleRemoveSubtask = (id) => {
+    setSubtasks(subtasks.filter(s => s.id !== id));
+  };
 
   const handleSubmit = (e) => {
     e.preventDefault();
@@ -184,6 +211,8 @@ export function TaskModal({ isOpen, onClose, task, onSubmit, showToast }) {
       scheduleDate,
       deadline,
       reminder,
+      recurring,
+      subtasks,
     });
   };
 
@@ -219,13 +248,66 @@ export function TaskModal({ isOpen, onClose, task, onSubmit, showToast }) {
             <textarea
               value={desc}
               onChange={(e) => setDesc(e.target.value)}
-              rows="3"
+              rows="2"
               placeholder="Details or checklist for this task..."
               className="bg-black/20 border border-white/6 text-white px-3 py-2.5 rounded-lg text-sm transition-all focus:outline-none focus:border-accent focus:shadow-[0_0_12px_var(--accent-glow)] focus:bg-black/35 resize-none"
             />
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {/* Sub-tasks checklist section */}
+          <div className="flex flex-col gap-1.5">
+            <label className="text-xs font-semibold text-text-secondary flex items-center gap-1.5">
+              <i className="fa-solid fa-list-check text-accent"></i> Sub-tasks / Checklist
+            </label>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={newSubtaskText}
+                onChange={(e) => setNewSubtaskText(e.target.value)}
+                placeholder="Add a step-by-step item..."
+                className="flex-1 bg-black/20 border border-white/6 text-white px-3 py-2 rounded-lg text-xs transition-all focus:outline-none focus:border-accent focus:bg-black/35"
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    handleAddSubtask();
+                  }
+                }}
+              />
+              <button
+                type="button"
+                onClick={handleAddSubtask}
+                className="px-3.5 py-2 bg-accent hover:bg-accent-hover text-white rounded-lg text-xs font-semibold transition-all cursor-pointer"
+              >
+                Add
+              </button>
+            </div>
+            {subtasks.length > 0 && (
+              <div className="max-h-32 overflow-y-auto border border-white/6 rounded-lg bg-black/15 p-2 flex flex-col gap-1.5 mt-1 select-none">
+                {subtasks.map((sub) => (
+                  <div key={sub.id} className="flex justify-between items-center gap-2 px-2.5 py-1 rounded bg-white/[0.015] border border-white/4">
+                    <label className="flex items-center gap-2 text-[11px] text-text-primary cursor-pointer select-none">
+                      <input
+                        type="checkbox"
+                        checked={sub.completed}
+                        onChange={() => handleToggleSubtask(sub.id)}
+                        className="w-3.5 h-3.5 rounded border-white/10 accent-accent cursor-pointer"
+                      />
+                      <span className={sub.completed ? 'line-through text-text-muted' : ''}>{sub.text}</span>
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveSubtask(sub.id)}
+                      className="text-text-muted hover:text-red-400 p-0.5 transition-colors cursor-pointer text-xs"
+                    >
+                      <i className="fa-solid fa-xmark text-[10px]"></i>
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div className="flex flex-col gap-1.5">
               <label className="text-sm font-medium text-text-secondary">
                 <i className="fa-solid fa-spinner mr-1.5"></i> Status
@@ -252,6 +334,21 @@ export function TaskModal({ isOpen, onClose, task, onSubmit, showToast }) {
                 <option value="low">Low</option>
                 <option value="medium">Medium</option>
                 <option value="high">High</option>
+              </select>
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <label className="text-sm font-medium text-text-secondary">
+                <i className="fa-solid fa-rotate mr-1.5"></i> Recurrence
+              </label>
+              <select
+                value={recurring}
+                onChange={(e) => setRecurring(e.target.value)}
+                className="bg-black/20 border border-white/6 text-white px-3 py-2.5 rounded-lg text-sm transition-all focus:outline-none focus:border-accent focus:bg-[#0d0e15]"
+              >
+                <option value="none">None</option>
+                <option value="daily">Daily</option>
+                <option value="weekly">Weekly</option>
+                <option value="monthly">Monthly</option>
               </select>
             </div>
           </div>
