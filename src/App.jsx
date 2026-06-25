@@ -4,6 +4,8 @@ import Dashboard from './components/Dashboard.jsx';
 import ProjectDetail from './components/ProjectDetail.jsx';
 import Settings from './components/Settings.jsx';
 import { ProjectModal, TaskModal } from './components/Modals.jsx';
+import SearchPalette from './components/SearchPalette.jsx';
+import PomodoroTimer from './components/PomodoroTimer.jsx';
 
 function escapeHTML(str) {
   if (!str) return '';
@@ -62,15 +64,30 @@ export default function App() {
   const [taskModal, setTaskModal] = useState({ isOpen: false, data: null });
 
   // notifiedTasks to prevent repeating notifications
-  const [notifiedTasks, setNotifiedTasks] = useState(() => 
+  const [notifiedTasks, setNotifiedTasks] = useState(() =>
     JSON.parse(localStorage.getItem('track-notified-tasks') || '[]')
   );
+
+  // Global search palette
+  const [searchOpen, setSearchOpen] = useState(false);
 
   // Apply visual accent theme immediately when changed
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
     localStorage.setItem('track-theme', theme);
   }, [theme]);
+
+  // Global Ctrl+K shortcut for search palette
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+        e.preventDefault();
+        if (user) setSearchOpen(open => !open);
+      }
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [user]);
 
   // Auth session check on mount
   useEffect(() => {
@@ -333,6 +350,33 @@ export default function App() {
     }
   };
 
+  const handleLogTime = async (projectId, taskId, seconds) => {
+    const project = projects.find(p => p.id === projectId);
+    if (!project) return;
+    const task = project.tasks.find(t => t.id === taskId);
+    if (!task) return;
+
+    const newEntry = {
+      startedAt: new Date(Date.now() - seconds * 1000).toISOString(),
+      endedAt: new Date().toISOString(),
+      durationSeconds: seconds
+    };
+    const newTimeEntries = [...(task.timeEntries || []), newEntry];
+    const newTotal = (task.totalTimeSeconds || 0) + seconds;
+
+    try {
+      const response = await fetch(`/api/projects/${projectId}/tasks/${taskId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...task, timeEntries: newTimeEntries, totalTimeSeconds: newTotal }),
+      });
+      if (!response.ok) throw new Error('Failed to log time.');
+      await fetchProjects();
+    } catch (err) {
+      showToast('Failed to log time.', 'error');
+    }
+  };
+
   const handleTaskStatusChange = async (taskId, newStatus) => {
     const project = projects.find(p => p.id === activeProjectId);
     if (!project) return;
@@ -469,6 +513,16 @@ export default function App() {
           </button>
         </div>
 
+        {/* Global Search Trigger */}
+        <button
+          onClick={() => setSearchOpen(true)}
+          className="flex items-center gap-3 px-3.5 py-2 rounded-lg border border-white/6 bg-white/[0.02] hover:bg-white/[0.04] text-text-muted hover:text-white transition-all cursor-pointer text-xs w-full"
+        >
+          <i className="fa-solid fa-magnifying-glass text-[11px]"></i>
+          <span className="flex-1 text-left text-[11px]">Search...</span>
+          <kbd className="text-[9px] border border-white/10 px-1 py-0.5 rounded font-mono opacity-60">Ctrl K</kbd>
+        </button>
+
         {/* Main Navigation Links */}
         <nav className="flex flex-col gap-1">
           <button
@@ -593,6 +647,26 @@ export default function App() {
         onClose={() => setTaskModal({ isOpen: false, data: null })}
         task={taskModal.data}
         onSubmit={handleTaskSubmit}
+        showToast={showToast}
+      />
+
+      {/* Global Search Palette */}
+      <SearchPalette
+        isOpen={searchOpen}
+        onClose={() => setSearchOpen(false)}
+        projects={projects}
+        onSelectProject={(id) => { setActiveProjectId(id); setActiveView('project-detail'); }}
+        onSelectTask={(task, projectId) => {
+          setActiveProjectId(projectId);
+          setActiveView('project-detail');
+          setTimeout(() => setTaskModal({ isOpen: true, data: task }), 50);
+        }}
+      />
+
+      {/* Pomodoro Focus Timer */}
+      <PomodoroTimer
+        projects={projects}
+        onLogTime={handleLogTime}
         showToast={showToast}
       />
     </div>

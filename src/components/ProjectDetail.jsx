@@ -1,6 +1,14 @@
 import React, { useState, useEffect, useRef } from 'react';
 import './ProjectDetail.css';
 
+function formatDuration(seconds) {
+  if (!seconds || seconds < 60) return seconds > 0 ? `${seconds}s` : null;
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  if (h > 0) return `${h}h ${m}m`;
+  return `${m}m`;
+}
+
 function formatDateTimeUS(dateStr) {
   if (!dateStr) return '';
   const hasTime = dateStr.includes('T');
@@ -111,6 +119,26 @@ function TaskCard({ task, onEdit, onDelete, onStatusChange, todayStr, escapeHTML
         {task.description ? task.description : <span className="text-text-muted italic">No description provided.</span>}
       </p>
 
+      {/* Sub-task Progress Bar */}
+      {task.subtasks && task.subtasks.length > 0 && (() => {
+        const doneCount = task.subtasks.filter(s => s.done).length;
+        const pct = Math.round((doneCount / task.subtasks.length) * 100);
+        return (
+          <div className="flex flex-col gap-1">
+            <div className="flex justify-between items-center text-[10px] text-text-muted">
+              <span><i className="fa-solid fa-list-check mr-1 text-accent/60"></i>Sub-tasks</span>
+              <span className="font-semibold">{doneCount}/{task.subtasks.length}</span>
+            </div>
+            <div className="w-full h-1 bg-white/8 rounded-full overflow-hidden">
+              <div
+                className="h-full bg-accent rounded-full transition-all duration-500"
+                style={{ width: `${pct}%` }}
+              />
+            </div>
+          </div>
+        );
+      })()}
+
       {/* Footer */}
       <div className="flex justify-between items-center mt-1 text-[10px] text-text-secondary">
         <div className="flex flex-col gap-1">
@@ -124,9 +152,17 @@ function TaskCard({ task, onEdit, onDelete, onStatusChange, todayStr, escapeHTML
               <i className="fa-solid fa-calendar-check" title="Deadline"></i> {formattedDeadline} {isOverdue && <b>(OVERDUE)</b>}
             </span>
           )}
+          {formatDuration(task.totalTimeSeconds) && (
+            <span className="flex items-center gap-1.5 text-text-muted">
+              <i className="fa-solid fa-clock" title="Time Logged"></i> {formatDuration(task.totalTimeSeconds)} logged
+            </span>
+          )}
         </div>
-        
+
         <div className="flex items-center gap-2">
+          {task.recurring && task.recurring !== 'none' && (
+            <i className="fa-solid fa-rotate text-accent/70" title={`Recurring ${task.recurring}`}></i>
+          )}
           {task.reminder && <i className="fa-solid fa-bell text-accent animate-pulse" title="Alarm Enabled"></i>}
           <span className={`px-1.5 py-0.5 rounded text-[8px] font-extrabold uppercase ${
             task.priority === 'high' ? 'bg-[#f43f5e]/12 text-[#fda4af] border border-[#f43f5e]/20' :
