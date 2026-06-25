@@ -1,11 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import Auth from './components/Auth.jsx';
-import Dashboard from './components/Dashboard.jsx';
-import ProjectDetail from './components/ProjectDetail.jsx';
-import Settings from './components/Settings.jsx';
-import { ProjectModal, TaskModal } from './components/Modals.jsx';
-import SearchPalette from './components/SearchPalette.jsx';
-import PomodoroTimer from './components/PomodoroTimer.jsx';
+import Auth from './components/Auth/Auth.jsx';
+import Dashboard from './components/Dashboard/Dashboard.jsx';
+import ProjectDetail from './components/ProjectDetail/ProjectDetail.jsx';
+import Settings from './components/Settings/Settings.jsx';
+import { ProjectModal, TaskModal } from './components/Modals/Modals.jsx';
+import Pomodoro from './components/Pomodoro/Pomodoro.jsx';
+import GlobalSearch from './components/GlobalSearch/GlobalSearch.jsx';
 
 function escapeHTML(str) {
   if (!str) return '';
@@ -62,14 +62,12 @@ export default function App() {
   // Modals visibility & data payload
   const [projectModal, setProjectModal] = useState({ isOpen: false, data: null });
   const [taskModal, setTaskModal] = useState({ isOpen: false, data: null });
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
 
   // notifiedTasks to prevent repeating notifications
-  const [notifiedTasks, setNotifiedTasks] = useState(() =>
+  const [notifiedTasks, setNotifiedTasks] = useState(() => 
     JSON.parse(localStorage.getItem('track-notified-tasks') || '[]')
   );
-
-  // Global search palette
-  const [searchOpen, setSearchOpen] = useState(false);
 
   // Apply visual accent theme immediately when changed
   useEffect(() => {
@@ -77,17 +75,17 @@ export default function App() {
     localStorage.setItem('track-theme', theme);
   }, [theme]);
 
-  // Global Ctrl+K shortcut for search palette
+  // Global Ctrl+K search hotkey listener
   useEffect(() => {
     const handleKeyDown = (e) => {
       if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
         e.preventDefault();
-        if (user) setSearchOpen(open => !open);
+        setIsSearchOpen(prev => !prev);
       }
     };
-    document.addEventListener('keydown', handleKeyDown);
-    return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [user]);
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
 
   // Auth session check on mount
   useEffect(() => {
@@ -350,52 +348,206 @@ export default function App() {
     }
   };
 
-  const handleLogTime = async (projectId, taskId, seconds) => {
-    const project = projects.find(p => p.id === projectId);
-    if (!project) return;
-    const task = project.tasks.find(t => t.id === taskId);
-    if (!task) return;
+  const handleRecurringTaskGeneration = async (task) => {
+    const shiftDate = (dateStr, pattern) => {
+      if (!dateStr) return '';
+      const date = new Date(dateStr);
+      if (isNaN(date.getTime())) return dateStr;
 
-    const newEntry = {
-      startedAt: new Date(Date.now() - seconds * 1000).toISOString(),
-      endedAt: new Date().toISOString(),
-      durationSeconds: seconds
+      if (pattern === 'daily') {
+        date.setDate(date.getDate() + 1);
+      } else if (pattern === 'weekly') {
+        date.setDate(date.getDate() + 7);
+      } else if (pattern === 'monthly') {
+        date.setMonth(date.getMonth() + 1);
+      }
+      
+      const pad = (num) => String(num).padStart(2, '0');
+      return `${date.getFullYear()}-${pad(date.getMonth()+1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
     };
-    const newTimeEntries = [...(task.timeEntries || []), newEntry];
-    const newTotal = (task.totalTimeSeconds || 0) + seconds;
+
+    const nextScheduleDate = shiftDate(task.scheduleDate, task.recurring);
+    const nextDeadline = shiftDate(task.deadline, task.recurring);
+
+    const clonedTask = {
+      title: task.title,
+      description: task.description || '',
+      status: 'todo',
+      priority: task.priority || 'medium',
+      scheduleDate: nextScheduleDate,
+      deadline: nextDeadline,
+      reminder: task.reminder || false,
+      recurring: task.recurring,
+      subtasks: (task.subtasks || []).map(s => ({ ...s, completed: false })),
+      timeLogged: 0,
+      timeSessions: [],
+      timerStarted: null,
+      pomodoroSessions: []
+    };
 
     try {
-      const response = await fetch(`/api/projects/${projectId}/tasks/${taskId}`, {
-        method: 'PUT',
+      const response = await fetch(`/api/projects/${activeProjectId}/tasks`, {
+        method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...task, timeEntries: newTimeEntries, totalTimeSeconds: newTotal }),
+        body: JSON.stringify(clonedTask),
       });
-      if (!response.ok) throw new Error('Failed to log time.');
-      await fetchProjects();
+      if (response.ok) {
+        showToast(`Recurring occurrence for "${task.title}" created!`, 'success');
+      } else {
+        console.error('Failed to auto-generate recurring task occurrence');
+      }
     } catch (err) {
-      showToast('Failed to log time.', 'error');
+      console.error('Failed to auto-generate recurring task', err);
     }
   };
 
-  const handleTaskStatusChange = async (taskId, newStatus) => {
+  const handleTaskUpdate = async (taskId, updatedFields, silent = false) => {
     const project = projects.find(p => p.id === activeProjectId);
     if (!project) return;
     const task = project.tasks.find(t => t.id === taskId);
     if (!task) return;
 
+    const statusTransitionedToDone = updatedFields.status === 'done' && task.status !== 'done';
+    const updatedTask = { ...task, ...updatedFields };
+
     try {
       const response = await fetch(`/api/projects/${activeProjectId}/tasks/${taskId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...task, status: newStatus }),
+        body: JSON.stringify(updatedTask),
       });
       if (!response.ok) {
         const data = await response.json();
-        throw new Error(data.error || 'Failed to update task status.');
+        throw new Error(data.error || 'Failed to update task.');
       }
+      
+      if (!silent) {
+        showToast('Task updated successfully.', 'success');
+      }
+
+      if (statusTransitionedToDone && task.recurring && task.recurring !== 'none') {
+        await handleRecurringTaskGeneration(task);
+      }
+
       await fetchProjects();
     } catch (err) {
       showToast(err.message, 'error');
+    }
+  };
+
+  const handleStartTimer = async (projectId, taskId) => {
+    let activeTimerTask = null;
+    let activeTimerProjectId = null;
+    
+    projects.forEach(p => {
+      (p.tasks || []).forEach(t => {
+        if (t.timerStarted && t.id !== taskId) {
+          activeTimerTask = t;
+          activeTimerProjectId = p.id;
+        }
+      });
+    });
+
+    if (activeTimerTask) {
+      const now = Date.now();
+      const startedTime = new Date(activeTimerTask.timerStarted).getTime();
+      const elapsed = Math.max(0, Math.floor((now - startedTime) / 1000));
+      
+      const newSession = {
+        id: Date.now().toString() + Math.random().toString(36).substring(2, 5),
+        startTime: activeTimerTask.timerStarted,
+        endTime: new Date().toISOString(),
+        duration: elapsed
+      };
+
+      const updatedOtherTask = {
+        ...activeTimerTask,
+        timerStarted: null,
+        timeLogged: (activeTimerTask.timeLogged || 0) + elapsed,
+        timeSessions: [...(activeTimerTask.timeSessions || []), newSession]
+      };
+
+      try {
+        await fetch(`/api/projects/${activeTimerProjectId}/tasks/${activeTimerTask.id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(updatedOtherTask)
+        });
+        showToast(`Timer paused on "${activeTimerTask.title}"`, 'info');
+      } catch (err) {
+        console.error('Failed to auto-pause running timer on other task', err);
+      }
+    }
+
+    const proj = projects.find(p => p.id === projectId);
+    if (!proj) return;
+    const tsk = proj.tasks.find(t => t.id === taskId);
+    if (!tsk) return;
+
+    const updatedTask = {
+      ...tsk,
+      timerStarted: new Date().toISOString()
+    };
+
+    try {
+      const response = await fetch(`/api/projects/${projectId}/tasks/${taskId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updatedTask),
+      });
+      if (response.ok) {
+        showToast(`Timer started on "${tsk.title}"`, 'success');
+        await fetchProjects();
+      }
+    } catch (err) {
+      showToast('Failed to start timer.', 'error');
+    }
+  };
+
+  const handleStopTimer = async (projectId, taskId) => {
+    const proj = projects.find(p => p.id === projectId);
+    if (!proj) return;
+    const tsk = proj.tasks.find(t => t.id === taskId);
+    if (!tsk || !tsk.timerStarted) return;
+
+    const now = Date.now();
+    const startedTime = new Date(tsk.timerStarted).getTime();
+    const elapsed = Math.max(0, Math.floor((now - startedTime) / 1000));
+    
+    const newSession = {
+      id: Date.now().toString() + Math.random().toString(36).substring(2, 5),
+      startTime: tsk.timerStarted,
+      endTime: new Date().toISOString(),
+      duration: elapsed
+    };
+
+    const updatedTask = {
+      ...tsk,
+      timerStarted: null,
+      timeLogged: (tsk.timeLogged || 0) + elapsed,
+      timeSessions: [...(tsk.timeSessions || []), newSession]
+    };
+
+    try {
+      const response = await fetch(`/api/projects/${projectId}/tasks/${taskId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updatedTask),
+      });
+      if (response.ok) {
+        showToast(`Logged ${Math.floor(elapsed / 60)}m ${elapsed % 60}s to "${tsk.title}"`, 'success');
+        await fetchProjects();
+      }
+    } catch (err) {
+      showToast('Failed to stop timer.', 'error');
+    }
+  };
+
+  const handleSearchResultClick = (projectId, task = null) => {
+    setActiveProjectId(projectId);
+    setActiveView('project-detail');
+    if (task) {
+      setTaskModal({ isOpen: true, data: task });
     }
   };
 
@@ -495,6 +647,21 @@ export default function App() {
           <span className="text-white glow-text">Track.</span>
         </div>
 
+        {/* Global Search trigger bar */}
+        <button
+          onClick={() => setIsSearchOpen(true)}
+          className="flex items-center justify-between px-3 py-2 bg-white/[0.02] border border-white/6 hover:bg-white/4 hover:border-white/12 rounded-xl text-left cursor-pointer transition-all duration-300"
+          title="Search anything (Ctrl+K)"
+        >
+          <div className="flex items-center gap-2 text-text-muted text-xs">
+            <i className="fa-solid fa-magnifying-glass text-[10px]"></i>
+            <span>Search workspace...</span>
+          </div>
+          <span className="text-[9px] font-bold bg-white/5 border border-white/8 px-1.5 py-0.2 rounded text-text-muted select-none">
+            Ctrl+K
+          </span>
+        </button>
+
         {/* Profile Card */}
         <div className="flex items-center gap-3 p-3 bg-white/[0.02] border border-white/6 rounded-xl relative">
           <div className="w-10 h-10 rounded-lg bg-accent/20 border border-accent/30 flex items-center justify-center text-accent text-lg">
@@ -512,16 +679,6 @@ export default function App() {
             <i className="fa-solid fa-arrow-right-from-bracket"></i>
           </button>
         </div>
-
-        {/* Global Search Trigger */}
-        <button
-          onClick={() => setSearchOpen(true)}
-          className="flex items-center gap-3 px-3.5 py-2 rounded-lg border border-white/6 bg-white/[0.02] hover:bg-white/[0.04] text-text-muted hover:text-white transition-all cursor-pointer text-xs w-full"
-        >
-          <i className="fa-solid fa-magnifying-glass text-[11px]"></i>
-          <span className="flex-1 text-left text-[11px]">Search...</span>
-          <kbd className="text-[9px] border border-white/10 px-1 py-0.5 rounded font-mono opacity-60">Ctrl K</kbd>
-        </button>
 
         {/* Main Navigation Links */}
         <nav className="flex flex-col gap-1">
@@ -602,6 +759,9 @@ export default function App() {
             projects={projects}
             onProjectSelect={(id) => { setActiveProjectId(id); setActiveView('project-detail'); }}
             onTaskEdit={(task, projId) => { setActiveProjectId(projId); setTaskModal({ isOpen: true, data: task }); }}
+            onTaskUpdate={handleTaskUpdate}
+            onStartTimer={handleStartTimer}
+            onStopTimer={handleStopTimer}
             selectedGanttProjects={selectedGanttProjects}
             onSelectedGanttProjectsChange={setSelectedGanttProjects}
             escapeHTML={escapeHTML}
@@ -617,7 +777,9 @@ export default function App() {
             onAddTask={() => setTaskModal({ isOpen: true, data: null })}
             onEditTask={(task) => setTaskModal({ isOpen: true, data: task })}
             onDeleteTask={handleTaskDelete}
-            onTaskStatusChange={handleTaskStatusChange}
+            onTaskUpdate={handleTaskUpdate}
+            onStartTimer={handleStartTimer}
+            onStopTimer={handleStopTimer}
             escapeHTML={escapeHTML}
           />
         )}
@@ -650,24 +812,18 @@ export default function App() {
         showToast={showToast}
       />
 
-      {/* Global Search Palette */}
-      <SearchPalette
-        isOpen={searchOpen}
-        onClose={() => setSearchOpen(false)}
-        projects={projects}
-        onSelectProject={(id) => { setActiveProjectId(id); setActiveView('project-detail'); }}
-        onSelectTask={(task, projectId) => {
-          setActiveProjectId(projectId);
-          setActiveView('project-detail');
-          setTimeout(() => setTaskModal({ isOpen: true, data: task }), 50);
-        }}
+      {/* Global Pomodoro Timer Widget */}
+      <Pomodoro
+        onTaskUpdate={handleTaskUpdate}
+        showToast={showToast}
       />
 
-      {/* Pomodoro Focus Timer */}
-      <PomodoroTimer
+      {/* Global Command Palette Search */}
+      <GlobalSearch
+        isOpen={isSearchOpen}
+        onClose={() => setIsSearchOpen(false)}
         projects={projects}
-        onLogTime={handleLogTime}
-        showToast={showToast}
+        onSelectResult={handleSearchResultClick}
       />
     </div>
   );

@@ -1,14 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import './ProjectDetail.css';
 
-function formatDuration(seconds) {
-  if (!seconds || seconds < 60) return seconds > 0 ? `${seconds}s` : null;
-  const h = Math.floor(seconds / 3600);
-  const m = Math.floor((seconds % 3600) / 60);
-  if (h > 0) return `${h}h ${m}m`;
-  return `${m}m`;
-}
-
 function formatDateTimeUS(dateStr) {
   if (!dateStr) return '';
   const hasTime = dateStr.includes('T');
@@ -29,8 +21,10 @@ function formatDateTimeUS(dateStr) {
 }
 
 // Single Task Card inside Kanban Column
-function TaskCard({ task, onEdit, onDelete, onStatusChange, todayStr, escapeHTML }) {
+function TaskCard({ task, projectId, onEdit, onDelete, onTaskUpdate, onStartTimer, onStopTimer, todayStr, escapeHTML }) {
   const [menuActive, setMenuActive] = useState(false);
+  const [subtasksVisible, setSubtasksVisible] = useState(false);
+  const [elapsedTime, setElapsedTime] = useState(task.timeLogged || 0);
   const menuRef = useRef(null);
 
   useEffect(() => {
@@ -43,10 +37,45 @@ function TaskCard({ task, onEdit, onDelete, onStatusChange, todayStr, escapeHTML
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
+  useEffect(() => {
+    let interval = null;
+    if (task.timerStarted) {
+      const calculateElapsed = () => {
+        const start = new Date(task.timerStarted).getTime();
+        const now = Date.now();
+        const diff = Math.max(0, Math.floor((now - start) / 1000));
+        setElapsedTime((task.timeLogged || 0) + diff);
+      };
+      calculateElapsed();
+      interval = setInterval(calculateElapsed, 1000);
+    } else {
+      setElapsedTime(task.timeLogged || 0);
+    }
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [task.timerStarted, task.timeLogged]);
+
   const isOverdue = task.deadline && task.deadline < todayStr && task.status !== 'done';
 
   const formattedDeadline = formatDateTimeUS(task.deadline);
   const formattedSchedule = formatDateTimeUS(task.scheduleDate);
+
+  const subtasks = task.subtasks || [];
+  const completedSubtasks = subtasks.filter(s => s.completed).length;
+  const totalSubtasks = subtasks.length;
+  const percentDone = totalSubtasks === 0 ? 0 : Math.round((completedSubtasks / totalSubtasks) * 100);
+
+  const formatTime = (secs) => {
+    const hrs = Math.floor(secs / 3600);
+    const mins = Math.floor((secs % 3600) / 60);
+    const seconds = secs % 60;
+    const pad = (num) => String(num).padStart(2, '0');
+    if (hrs > 0) {
+      return `${hrs}h ${pad(mins)}m ${pad(seconds)}s`;
+    }
+    return `${mins}m ${pad(seconds)}s`;
+  };
 
   return (
     <div className={`task-card p-4 relative bg-white/[0.015] border border-white/6 hover:border-white/12 hover:bg-white/[0.03] hover:-translate-y-[2px] rounded-xl flex flex-col gap-3 transition-all duration-300 ${
@@ -81,7 +110,7 @@ function TaskCard({ task, onEdit, onDelete, onStatusChange, todayStr, escapeHTML
               </button>
               {task.status !== 'todo' && (
                 <button
-                  onClick={() => { onStatusChange(task.id, 'todo'); setMenuActive(false); }}
+                  onClick={() => { onTaskUpdate(task.id, { status: 'todo' }); setMenuActive(false); }}
                   className="w-full text-left px-3 py-1.5 hover:bg-white/5 text-text-secondary hover:text-white text-[11px] font-medium flex items-center gap-2 cursor-pointer"
                 >
                   <i className="fa-solid fa-circle-question text-[9px]"></i> To Do
@@ -89,7 +118,7 @@ function TaskCard({ task, onEdit, onDelete, onStatusChange, todayStr, escapeHTML
               )}
               {task.status !== 'in-progress' && (
                 <button
-                  onClick={() => { onStatusChange(task.id, 'in-progress'); setMenuActive(false); }}
+                  onClick={() => { onTaskUpdate(task.id, { status: 'in-progress' }); setMenuActive(false); }}
                   className="w-full text-left px-3 py-1.5 hover:bg-white/5 text-text-secondary hover:text-white text-[11px] font-medium flex items-center gap-2 cursor-pointer"
                 >
                   <i className="fa-solid fa-spinner text-[9px]"></i> In Progress
@@ -97,7 +126,7 @@ function TaskCard({ task, onEdit, onDelete, onStatusChange, todayStr, escapeHTML
               )}
               {task.status !== 'done' && (
                 <button
-                  onClick={() => { onStatusChange(task.id, 'done'); setMenuActive(false); }}
+                  onClick={() => { onTaskUpdate(task.id, { status: 'done' }); setMenuActive(false); }}
                   className="w-full text-left px-3 py-1.5 hover:bg-white/5 text-text-secondary hover:text-white text-[11px] font-medium flex items-center gap-2 cursor-pointer"
                 >
                   <i className="fa-solid fa-circle-check text-[9px]"></i> Done
@@ -119,51 +148,107 @@ function TaskCard({ task, onEdit, onDelete, onStatusChange, todayStr, escapeHTML
         {task.description ? task.description : <span className="text-text-muted italic">No description provided.</span>}
       </p>
 
-      {/* Sub-task Progress Bar */}
-      {task.subtasks && task.subtasks.length > 0 && (() => {
-        const doneCount = task.subtasks.filter(s => s.done).length;
-        const pct = Math.round((doneCount / task.subtasks.length) * 100);
-        return (
-          <div className="flex flex-col gap-1">
-            <div className="flex justify-between items-center text-[10px] text-text-muted">
-              <span><i className="fa-solid fa-list-check mr-1 text-accent/60"></i>Sub-tasks</span>
-              <span className="font-semibold">{doneCount}/{task.subtasks.length}</span>
-            </div>
-            <div className="w-full h-1 bg-white/8 rounded-full overflow-hidden">
-              <div
-                className="h-full bg-accent rounded-full transition-all duration-500"
-                style={{ width: `${pct}%` }}
-              />
-            </div>
+      {/* Sub-tasks Checklist Progress Bar */}
+      {totalSubtasks > 0 && (
+        <div className="flex flex-col gap-1 mt-0.5 select-none">
+          <div className="flex justify-between items-center text-[10px] font-semibold text-text-secondary">
+            <button 
+              type="button"
+              onClick={() => setSubtasksVisible(!subtasksVisible)}
+              className="flex items-center gap-1 hover:text-white transition-colors cursor-pointer"
+            >
+              <i className="fa-solid fa-list-check text-accent text-[9px]"></i> Checklist ({completedSubtasks}/{totalSubtasks})
+              <i className={`fa-solid fa-chevron-${subtasksVisible ? 'up' : 'down'} text-[8px] opacity-70`}></i>
+            </button>
+            <span>{percentDone}%</span>
           </div>
-        );
-      })()}
+          <div className="h-1.5 bg-white/5 rounded-full overflow-hidden relative">
+            <div 
+              className="h-full bg-accent rounded-full shadow-[0_0_5px_var(--accent-glow)] transition-all duration-300"
+              style={{ width: `${percentDone}%` }}
+            />
+          </div>
+          {subtasksVisible && (
+            <div className="flex flex-col gap-1 border-t border-white/5 pt-1.5 mt-1 select-none max-h-28 overflow-y-auto">
+              {subtasks.map(sub => (
+                <label key={sub.id} className="flex items-center gap-2 text-[10px] text-text-secondary cursor-pointer hover:text-white transition-colors py-0.5">
+                  <input
+                    type="checkbox"
+                    checked={sub.completed}
+                    onChange={() => {
+                      const updatedSubtasks = subtasks.map(s => s.id === sub.id ? { ...s, completed: !s.completed } : s);
+                      onTaskUpdate(task.id, { subtasks: updatedSubtasks }, true);
+                    }}
+                    className="w-3 h-3 rounded border-white/10 accent-accent cursor-pointer"
+                  />
+                  <span className={sub.completed ? 'line-through text-text-muted' : ''}>{sub.text}</span>
+                </label>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Play/Pause Timer & Logged Summary */}
+      <div className="flex justify-between items-center bg-white/[0.01] border border-white/4 p-1.5 rounded-lg">
+        <div className="flex items-center gap-2">
+          {task.timerStarted ? (
+            <button
+              onClick={() => onStopTimer(projectId, task.id)}
+              className="w-6 h-6 rounded-md bg-red-500/20 hover:bg-red-500/35 border border-red-500/30 flex items-center justify-center text-red-400 hover:text-white cursor-pointer transition-all"
+              title="Pause Timer"
+            >
+              <i className="fa-solid fa-pause text-[10px]"></i>
+            </button>
+          ) : (
+            <button
+              onClick={() => onStartTimer(projectId, task.id)}
+              className="w-6 h-6 rounded-md bg-accent/20 hover:bg-accent/35 border border-accent/30 flex items-center justify-center text-accent hover:text-white cursor-pointer transition-all"
+              title="Start Timer"
+            >
+              <i className="fa-solid fa-play text-[8px] translate-x-[0.5px]"></i>
+            </button>
+          )}
+          <span className={`text-[10px] font-bold ${task.timerStarted ? 'text-red-400 animate-pulse' : 'text-text-secondary'}`}>
+            {elapsedTime > 0 ? formatTime(elapsedTime) : '0s logged'}
+          </span>
+        </div>
+        
+        {/* Quick Launch Pomodoro Focus */}
+        <button
+          onClick={() => {
+            const event = new CustomEvent('start-pomodoro-focus', { detail: { projectId, task } });
+            window.dispatchEvent(event);
+          }}
+          className="px-2 py-0.5 rounded bg-amber-500/10 hover:bg-amber-500/25 border border-amber-500/20 text-amber-400 hover:text-white text-[9px] font-bold cursor-pointer transition-all flex items-center gap-1"
+          title="Start Pomodoro Focus"
+        >
+          <i className="fa-solid fa-hourglass-start text-[8px]"></i> Focus
+        </button>
+      </div>
 
       {/* Footer */}
-      <div className="flex justify-between items-center mt-1 text-[10px] text-text-secondary">
-        <div className="flex flex-col gap-1">
+      <div className="flex justify-between items-center mt-0.5 text-[10px] text-text-secondary">
+        <div className="flex flex-col gap-0.5">
           {formattedSchedule && (
-            <span className="flex items-center gap-1.5 text-text-muted">
+            <span className="flex items-center gap-1 text-text-muted">
               <i className="fa-solid fa-calendar" title="Scheduled Date"></i> {formattedSchedule}
             </span>
           )}
           {formattedDeadline && (
-            <span className={`flex items-center gap-1.5 ${isOverdue ? 'text-red-400 font-bold' : ''}`}>
+            <span className={`flex items-center gap-1 ${isOverdue ? 'text-red-400 font-bold' : ''}`}>
               <i className="fa-solid fa-calendar-check" title="Deadline"></i> {formattedDeadline} {isOverdue && <b>(OVERDUE)</b>}
             </span>
           )}
-          {formatDuration(task.totalTimeSeconds) && (
-            <span className="flex items-center gap-1.5 text-text-muted">
-              <i className="fa-solid fa-clock" title="Time Logged"></i> {formatDuration(task.totalTimeSeconds)} logged
+        </div>
+        
+        <div className="flex items-center gap-1.5">
+          {task.reminder && <i className="fa-solid fa-bell text-accent animate-pulse" title="Alarm Enabled"></i>}
+          {task.recurring && task.recurring !== 'none' && (
+            <span className="px-1 py-0.2 rounded text-[7px] font-extrabold uppercase bg-purple-500/12 text-[#d8b4fe] border border-purple-500/20 flex items-center gap-0.5" title={`Recurring: ${task.recurring}`}>
+              <i className="fa-solid fa-rotate text-[6px]"></i> {task.recurring}
             </span>
           )}
-        </div>
-
-        <div className="flex items-center gap-2">
-          {task.recurring && task.recurring !== 'none' && (
-            <i className="fa-solid fa-rotate text-accent/70" title={`Recurring ${task.recurring}`}></i>
-          )}
-          {task.reminder && <i className="fa-solid fa-bell text-accent animate-pulse" title="Alarm Enabled"></i>}
           <span className={`px-1.5 py-0.5 rounded text-[8px] font-extrabold uppercase ${
             task.priority === 'high' ? 'bg-[#f43f5e]/12 text-[#fda4af] border border-[#f43f5e]/20' :
             (task.priority === 'medium' ? 'bg-[#eab308]/12 text-[#fef08a] border border-[#eab308]/20' :
@@ -183,7 +268,9 @@ export default function ProjectDetail({
   onAddTask,
   onEditTask,
   onDeleteTask,
-  onTaskStatusChange,
+  onTaskUpdate,
+  onStartTimer,
+  onStopTimer,
   escapeHTML,
 }) {
   const [searchQuery, setSearchQuery] = useState('');
@@ -354,9 +441,12 @@ export default function ProjectDetail({
                   <TaskCard
                     key={t.id}
                     task={t}
+                    projectId={project.id}
                     onEdit={onEditTask}
                     onDelete={onDeleteTask}
-                    onStatusChange={onTaskStatusChange}
+                    onTaskUpdate={onTaskUpdate}
+                    onStartTimer={onStartTimer}
+                    onStopTimer={onStopTimer}
                     todayStr={todayStr}
                     escapeHTML={escapeHTML}
                   />
@@ -385,9 +475,12 @@ export default function ProjectDetail({
                   <TaskCard
                     key={t.id}
                     task={t}
+                    projectId={project.id}
                     onEdit={onEditTask}
                     onDelete={onDeleteTask}
-                    onStatusChange={onTaskStatusChange}
+                    onTaskUpdate={onTaskUpdate}
+                    onStartTimer={onStartTimer}
+                    onStopTimer={onStopTimer}
                     todayStr={todayStr}
                     escapeHTML={escapeHTML}
                   />
@@ -416,9 +509,12 @@ export default function ProjectDetail({
                   <TaskCard
                     key={t.id}
                     task={t}
+                    projectId={project.id}
                     onEdit={onEditTask}
                     onDelete={onDeleteTask}
-                    onStatusChange={onTaskStatusChange}
+                    onTaskUpdate={onTaskUpdate}
+                    onStartTimer={onStartTimer}
+                    onStopTimer={onStopTimer}
                     todayStr={todayStr}
                     escapeHTML={escapeHTML}
                   />
@@ -480,7 +576,7 @@ export default function ProjectDetail({
                       <div className="w-32 px-4 flex items-center justify-center">
                         <select
                           value={t.status}
-                          onChange={(e) => onTaskStatusChange(t.id, e.target.value)}
+                          onChange={(e) => onTaskUpdate(t.id, { status: e.target.value })}
                           className="bg-black/25 border border-white/6 text-white px-2 py-1 rounded text-[11px] focus:outline-none focus:border-accent focus:bg-[#0d0e15] cursor-pointer"
                         >
                           <option value="todo">To Do</option>
