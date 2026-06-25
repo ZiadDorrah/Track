@@ -127,34 +127,6 @@ WshShell.Run "cmd.exe /c npm start", 0, false
   }
 }
 
-// Helper: create a recurring copy of a completed task
-function createRecurringTask(task) {
-  if (!task.recurring || task.recurring === 'none') return null;
-  const dayMap = { daily: 1, weekly: 7, monthly: 30 };
-  const days = dayMap[task.recurring] || 0;
-  const shiftDate = (dateStr) => {
-    if (!dateStr) return '';
-    const d = new Date(dateStr);
-    d.setDate(d.getDate() + days);
-    return d.toISOString().slice(0, 16);
-  };
-  return {
-    id: uuidv4(),
-    title: task.title,
-    description: task.description,
-    status: 'todo',
-    priority: task.priority,
-    deadline: shiftDate(task.deadline),
-    scheduleDate: shiftDate(task.scheduleDate),
-    reminder: task.reminder,
-    subtasks: (task.subtasks || []).map(s => ({ ...s, done: false })),
-    recurring: task.recurring,
-    timeEntries: [],
-    totalTimeSeconds: 0,
-    createdAt: new Date().toISOString()
-  };
-}
-
 // ================= AUTHENTICATION ENDPOINTS =================
 
 // Signup
@@ -310,7 +282,7 @@ app.delete('/api/projects/:id', authenticate, (req, res) => {
 // Create task inside a project
 app.post('/api/projects/:projectId/tasks', authenticate, (req, res) => {
   const projectId = req.params.projectId;
-  const { title, description, status, priority, deadline, scheduleDate, reminder, subtasks, recurring, timeEntries, totalTimeSeconds } = req.body;
+  const { title, description, status, priority, deadline, scheduleDate, reminder } = req.body;
 
   if (!title) {
     return res.status(400).json({ error: 'Task title is required.' });
@@ -331,10 +303,12 @@ app.post('/api/projects/:projectId/tasks', authenticate, (req, res) => {
     deadline: deadline || '',
     scheduleDate: scheduleDate || '',
     reminder: reminder !== undefined ? reminder : false,
-    subtasks: subtasks || [],
-    recurring: recurring || 'none',
-    timeEntries: timeEntries || [],
-    totalTimeSeconds: totalTimeSeconds || 0,
+    subtasks: req.body.subtasks || [],
+    timeLogged: req.body.timeLogged || 0,
+    timeSessions: req.body.timeSessions || [],
+    timerStarted: req.body.timerStarted || null,
+    recurring: req.body.recurring || 'none',
+    pomodoroSessions: req.body.pomodoroSessions || [],
     createdAt: new Date().toISOString()
   };
 
@@ -347,7 +321,7 @@ app.post('/api/projects/:projectId/tasks', authenticate, (req, res) => {
 // Update task inside a project
 app.put('/api/projects/:projectId/tasks/:taskId', authenticate, (req, res) => {
   const { projectId, taskId } = req.params;
-  const { title, description, status, priority, deadline, scheduleDate, reminder, subtasks, recurring, timeEntries, totalTimeSeconds } = req.body;
+  const { title, description, status, priority, deadline, scheduleDate, reminder } = req.body;
 
   if (!title) {
     return res.status(400).json({ error: 'Task title is required.' });
@@ -364,7 +338,6 @@ app.put('/api/projects/:projectId/tasks/:taskId', authenticate, (req, res) => {
     return res.status(404).json({ error: 'Task not found.' });
   }
 
-  const wasNotDone = task.status !== 'done';
   task.title = title;
   task.description = description || '';
   task.status = status || 'todo';
@@ -372,16 +345,12 @@ app.put('/api/projects/:projectId/tasks/:taskId', authenticate, (req, res) => {
   task.deadline = deadline || '';
   task.scheduleDate = scheduleDate || '';
   task.reminder = reminder !== undefined ? reminder : false;
-  task.subtasks = subtasks !== undefined ? subtasks : (task.subtasks || []);
-  task.recurring = recurring || task.recurring || 'none';
-  task.timeEntries = timeEntries !== undefined ? timeEntries : (task.timeEntries || []);
-  task.totalTimeSeconds = totalTimeSeconds !== undefined ? totalTimeSeconds : (task.totalTimeSeconds || 0);
-
-  // Auto-spawn next occurrence when recurring task is marked done
-  if (wasNotDone && task.status === 'done' && task.recurring !== 'none') {
-    const nextTask = createRecurringTask(task);
-    if (nextTask) project.tasks.push(nextTask);
-  }
+  if (req.body.subtasks !== undefined) task.subtasks = req.body.subtasks;
+  if (req.body.timeLogged !== undefined) task.timeLogged = req.body.timeLogged;
+  if (req.body.timeSessions !== undefined) task.timeSessions = req.body.timeSessions;
+  if (req.body.timerStarted !== undefined) task.timerStarted = req.body.timerStarted;
+  if (req.body.recurring !== undefined) task.recurring = req.body.recurring;
+  if (req.body.pomodoroSessions !== undefined) task.pomodoroSessions = req.body.pomodoroSessions;
 
   saveUserData(req.user.id, userData);
   res.json(task);
