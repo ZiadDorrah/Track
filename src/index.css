@@ -98,8 +98,14 @@ html[data-mode="light"] {
     --glass-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.08), 0 4px 10px -5px rgba(0, 0, 0, 0.04);
 }
 
+/* Map all hardcoded dark backgrounds to light equivalents */
 html[data-mode="light"] .bg-\[\#0a0b10\],
-html[data-mode="light"] .bg-\[\#0f1016\] {
+html[data-mode="light"] .bg-\[\#0f1016\],
+html[data-mode="light"] .bg-\[\#0f1017\],
+html[data-mode="light"] .bg-\[\#0f111c\],
+html[data-mode="light"] .bg-\[\#0d0e15\],
+html[data-mode="light"] .bg-\[\#141621\],
+html[data-mode="light"] .bg-\[\#07080d\] {
     background-color: #ffffff !important;
 }
 
@@ -107,8 +113,39 @@ html[data-mode="light"] .bg-\[\#06070a\] {
     background-color: #f1f5f9 !important;
 }
 
+html[data-mode="light"] .bg-\[\#0f111c\]\/85,
+html[data-mode="light"] .bg-\[\#0f111c\]\/95 {
+    background-color: rgba(255, 255, 255, 0.92) !important;
+}
+
+html[data-mode="light"] .bg-black\/20,
+html[data-mode="light"] .bg-black\/25,
+html[data-mode="light"] .bg-black\/30,
+html[data-mode="light"] .bg-black\/35 {
+    background-color: rgba(0, 0, 0, 0.04) !important;
+}
+
+html[data-mode="light"] .bg-zinc-800 {
+    background-color: #e2e8f0 !important;
+}
+
+html[data-mode="light"] .bg-zinc-700 {
+    background-color: #cbd5e1 !important;
+}
+
 html[data-mode="light"] .text-white {
     color: #0f172a !important;
+}
+
+html[data-mode="light"] .border-white\/6,
+html[data-mode="light"] .border-white\/8,
+html[data-mode="light"] .border-white\/10,
+html[data-mode="light"] .border-white\/12 {
+    border-color: rgba(0, 0, 0, 0.08) !important;
+}
+
+html[data-mode="light"] .glow-bg {
+    opacity: 0.15;
 }
 
 @layer base {
