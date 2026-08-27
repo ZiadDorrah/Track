@@ -61,6 +61,7 @@ export default function App() {
   const [themeMode, setThemeMode] = useState(localStorage.getItem('track-theme-mode') || 'dark');
   const [completionSound, setCompletionSound] = useState(localStorage.getItem('track-completion-sound') !== 'false');
   const [templates, setTemplates] = useState([]);
+  const [eligibleAssignees, setEligibleAssignees] = useState([]);
 
   // Toasts notifications queue
   const [toasts, setToasts] = useState([]);
@@ -137,12 +138,20 @@ export default function App() {
     checkSession();
   }, []);
 
-  // Fetch Projects when user gets logged in
+  // Fetch Projects & Assignees when user logs in or changes view
   useEffect(() => {
     if (user) {
       fetchProjects();
+      fetchEligibleAssignees(activeProjectId);
     }
-  }, [user]);
+  }, [user, activeProjectId]);
+
+  useEffect(() => {
+    if (user && taskModal.isOpen) {
+      const targetProjId = taskModal.data ? taskModal.data.projectId : activeProjectId;
+      fetchEligibleAssignees(targetProjId);
+    }
+  }, [taskModal.isOpen, taskModal.data]);
 
   // Alarms check loop
   useEffect(() => {
@@ -194,6 +203,19 @@ export default function App() {
       });
     } catch (err) {
       showToast(err.message, 'error');
+    }
+  };
+
+  const fetchEligibleAssignees = async (projectId = null) => {
+    try {
+      const url = projectId ? `/api/users/me/assignees?projectId=${projectId}` : '/api/users/me/assignees';
+      const response = await fetch(url);
+      if (response.ok) {
+        const data = await response.json();
+        setEligibleAssignees(data);
+      }
+    } catch (err) {
+      console.error('Failed to fetch eligible assignees', err);
     }
   };
 
@@ -967,6 +989,7 @@ export default function App() {
         project={taskModal.data ? projects.find(p => p.tasks.some(t => t.id === taskModal.data.id)) : projects.find(p => p.id === activeProjectId)}
         onSubmit={handleTaskSubmit}
         showToast={showToast}
+        eligibleAssignees={eligibleAssignees}
       />
 
       {/* Global Pomodoro Timer Widget */}

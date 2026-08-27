@@ -133,7 +133,7 @@ export function ProjectModal({ isOpen, onClose, project, onSubmit, showToast }) 
   );
 }
 
-export function TaskModal({ isOpen, onClose, task, project, onSubmit, showToast }) {
+export function TaskModal({ isOpen, onClose, task, project, onSubmit, showToast, eligibleAssignees = [] }) {
   const [title, setTitle] = useState('');
   const [desc, setDesc] = useState('');
   const [status, setStatus] = useState('todo');
@@ -144,6 +144,7 @@ export function TaskModal({ isOpen, onClose, task, project, onSubmit, showToast 
   const [recurring, setRecurring] = useState('none');
   const [subtasks, setSubtasks] = useState([]);
   const [newSubtaskText, setNewSubtaskText] = useState('');
+  const [assigneeId, setAssigneeId] = useState('');
 
   // Tier 2 states
   const [urgent, setUrgent] = useState(false);
@@ -182,6 +183,7 @@ export function TaskModal({ isOpen, onClose, task, project, onSubmit, showToast 
       setUrgent(task.urgent || false);
       setImportant(task.important || false);
       setCustomFields(task.customFields || {});
+      setAssigneeId(task.assigneeId || (eligibleAssignees.length > 0 ? eligibleAssignees[0].id : ''));
     } else {
       setTitle('');
       setDesc('');
@@ -195,10 +197,11 @@ export function TaskModal({ isOpen, onClose, task, project, onSubmit, showToast 
       setUrgent(false);
       setImportant(false);
       setCustomFields({});
+      setAssigneeId(eligibleAssignees.length > 0 ? eligibleAssignees[0].id : '');
     }
     setNewFieldName('');
     setNewFieldValue('');
-  }, [task, isOpen]);
+  }, [task, isOpen, eligibleAssignees]);
 
   if (!isOpen) return null;
 
@@ -265,6 +268,7 @@ export function TaskModal({ isOpen, onClose, task, project, onSubmit, showToast 
       urgent,
       important,
       customFields,
+      assigneeId: assigneeId || null
     });
   };
 
@@ -491,6 +495,26 @@ export function TaskModal({ isOpen, onClose, task, project, onSubmit, showToast 
               </select>
             </div>
           </div>
+
+          {/* Conditional Assignee Selector (shown only when 2+ eligible assignees exist) */}
+          {eligibleAssignees && eligibleAssignees.length > 1 && (
+            <div className="flex flex-col gap-1.5 p-3 bg-accent/5 border border-accent/20 rounded-lg">
+              <label className="text-sm font-semibold text-white flex items-center gap-2">
+                <i className="fa-solid fa-user-check text-accent"></i> Task Assignee
+              </label>
+              <select
+                value={assigneeId}
+                onChange={(e) => setAssigneeId(e.target.value)}
+                className="bg-black/30 border border-white/10 text-white px-3 py-2.5 rounded-lg text-sm transition-all focus:outline-none focus:border-accent focus:bg-[#0d0e15] cursor-pointer"
+              >
+                {eligibleAssignees.map((u) => (
+                  <option key={u.id} value={u.id}>
+                    {u.displayName} ({u.jobTitle || u.username})
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="flex flex-col gap-1.5">

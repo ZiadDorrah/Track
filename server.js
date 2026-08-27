@@ -4,6 +4,7 @@ const path = require('path');
 const crypto = require('crypto');
 const { v4: uuidv4 } = require('uuid');
 const db = require('./server/db');
+const { getDirectReports, getManagers, getEligibleAssignees } = require('./server/lib/hierarchy');
 
 const app = express();
 const PORT = process.env.PORT || 3005;
@@ -452,29 +453,99 @@ app.delete('/api/admin/managers', requireAdmin, async (req, res) => {
   }
 });
 
+// ================= HIERARCHY & TEAM ENDPOINTS =================
+
+// Get eligible assignees for current user
+app.get('/api/users/me/assignees', authenticate, async (req, res) => {
+  try {
+    const me = req.user.id;
+    const { projectId } = req.query;
+
+    if (projectId) {
+      // Only owner/member can see who this project's members are - same
+      // check used to gate task creation, so it never offers a project the
+      // caller couldn't actually assign a task within.
+      const project = await db.get(`
+        SELECT p.id FROM projects p
+        LEFT JOIN project_members pm ON pm.project_id = p.id
+        WHERE p.id = ? AND (p.owner_id = ? OR pm.user_id = ?)
+      `, [projectId, me, me]);
+      if (!project) {
+        return res.status(404).json({ error: 'Project not found or unauthorized.' });
+      }
+    }
+
+    const assignees = await getEligibleAssignees(me, projectId || null);
+    res.json(assignees);
+  } catch (err) {
+    console.error('Fetch assignees error:', err);
+    res.status(500).json({ error: 'Failed to fetch assignees.' });
+  }
+});
+
+// Get direct reports for current user
+app.get('/api/users/me/team', authenticate, async (req, res) => {
+  try {
+    const me = req.user.id;
+    const team = await getDirectReports(me);
+    res.json(team);
+  } catch (err) {
+    console.error('Fetch team error:', err);
+    res.status(500).json({ error: 'Failed to fetch team.' });
+  }
+});
+
+// Get direct managers for current user
+app.get('/api/users/me/managers', authenticate, async (req, res) => {
+  try {
+    const me = req.user.id;
+    const managers = await getManagers(me);
+    res.json(managers);
+  } catch (err) {
+    console.error('Fetch managers error:', err);
+    res.status(500).json({ error: 'Failed to fetch managers.' });
+  }
+});
+
 // ================= PROJECT ENDPOINTS =================
 
 // Get all projects accessible to current user
 app.get('/api/projects', authenticate, async (req, res) => {
   try {
     const me = req.user.id;
+    // A project is visible if the user owns it, is a member of it, or has at
+    // least one task in it assigned to or created by them (manager-assigned
+    // tasks in a project the employee doesn't otherwise belong to).
     const projects = await db.all(`
-      SELECT DISTINCT p.*
+      SELECT DISTINCT p.*,
+        CASE WHEN p.owner_id = ? OR EXISTS (
+          SELECT 1 FROM project_members pm2 WHERE pm2.project_id = p.id AND pm2.user_id = ?
+        ) THEN 1 ELSE 0 END AS has_full_access
       FROM projects p
-      LEFT JOIN project_members pm ON pm.project_id = p.id
-      WHERE p.owner_id = ? OR pm.user_id = ?
+      WHERE p.owner_id = ?
+        OR EXISTS (SELECT 1 FROM project_members pm WHERE pm.project_id = p.id AND pm.user_id = ?)
+        OR EXISTS (SELECT 1 FROM tasks t WHERE t.project_id = p.id AND (t.assignee_id = ? OR t.created_by_id = ?))
       ORDER BY p.created_at DESC
-    `, [me, me]);
+    `, [me, me, me, me, me, me]);
 
     const result = [];
     for (const p of projects) {
-      const tasks = await db.all('SELECT * FROM tasks WHERE project_id = ? ORDER BY created_at ASC', [p.id]);
-      const members = await db.all(`
-        SELECT u.id, u.username, u.display_name, u.job_title, pm.created_at as joined_at
-        FROM project_members pm
-        JOIN users u ON pm.user_id = u.id
-        WHERE pm.project_id = ?
-      `, [p.id]);
+      // Owners/members see the full board; anyone visible only via an assigned
+      // or created task sees just that task, not the rest of the project.
+      const hasFullAccess = Boolean(p.has_full_access);
+
+      const tasks = hasFullAccess
+        ? await db.all('SELECT * FROM tasks WHERE project_id = ? ORDER BY created_at ASC', [p.id])
+        : await db.all('SELECT * FROM tasks WHERE project_id = ? AND (assignee_id = ? OR created_by_id = ?) ORDER BY created_at ASC', [p.id, me, me]);
+
+      const members = hasFullAccess
+        ? await db.all(`
+          SELECT u.id, u.username, u.display_name, u.job_title, pm.created_at as joined_at
+          FROM project_members pm
+          JOIN users u ON pm.user_id = u.id
+          WHERE pm.project_id = ?
+        `, [p.id])
+        : [];
 
       result.push(formatProjectRow(p, tasks, members));
     }
