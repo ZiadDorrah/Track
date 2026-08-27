@@ -47,7 +47,7 @@ function formatDateTimeUS(dateStr) {
   return `${mm}/${dd}/${yyyy}`;
 }
 
-function ProjectDetailRoute({ projects, onEditProject, onDeleteProject, onAddTask, onEditTask, onDeleteTask, onTaskUpdate, onBulkTaskUpdate, onSaveAsTemplate, onStartTimer, onStopTimer, escapeHTML }) {
+function ProjectDetailRoute({ projects, onEditProject, onDeleteProject, onAddTask, onEditTask, onDeleteTask, onTaskUpdate, onBulkTaskUpdate, onSaveAsTemplate, onStartTimer, onStopTimer, escapeHTML, showToast }) {
   const { projectId } = useParams();
   const navigate = useNavigate();
   const project = projects.find(p => p.id === projectId);
@@ -79,6 +79,7 @@ function ProjectDetailRoute({ projects, onEditProject, onDeleteProject, onAddTas
       onStartTimer={onStartTimer}
       onStopTimer={onStopTimer}
       escapeHTML={escapeHTML}
+      showToast={showToast}
     />
   );
 }
@@ -1034,6 +1035,7 @@ export default function App() {
               onStartTimer={handleStartTimer}
               onStopTimer={handleStopTimer}
               escapeHTML={escapeHTML}
+              showToast={showToast}
             />
           } />
 

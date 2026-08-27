@@ -578,3 +578,158 @@ export function TaskModal({ isOpen, onClose, task, project, onSubmit, showToast,
     </div>
   );
 }
+
+export function ProjectMembersModal({ isOpen, onClose, project, isOwner, showToast, onMembersUpdated }) {
+  const [candidateUsers, setCandidateUsers] = useState([]);
+  const [selectedUserId, setSelectedUserId] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (isOpen) {
+      fetch('/api/users/all')
+        .then(res => res.json())
+        .then(data => setCandidateUsers(data))
+        .catch(err => console.error('Failed to fetch candidates:', err));
+    }
+  }, [isOpen]);
+
+  if (!isOpen || !project) return null;
+
+  const currentMembers = project.members || [];
+  const currentMemberIds = new Set(currentMembers.map(m => m.id));
+  const availableCandidates = candidateUsers.filter(u => !currentMemberIds.has(u.id));
+
+  const handleAddMember = async () => {
+    if (!selectedUserId) {
+      showToast('Please select a user to add.', 'error');
+      return;
+    }
+    try {
+      setLoading(true);
+      const res = await fetch(`/api/projects/${project.id}/members`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: selectedUserId })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        showToast('Member added to project.', 'success');
+        setSelectedUserId('');
+        if (onMembersUpdated) onMembersUpdated(data.members);
+      } else {
+        showToast(data.error || 'Failed to add member.', 'error');
+      }
+    } catch (err) {
+      showToast('Failed to add member.', 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleRemoveMember = async (userId) => {
+    try {
+      setLoading(true);
+      const res = await fetch(`/api/projects/${project.id}/members/${userId}`, {
+        method: 'DELETE'
+      });
+      const data = await res.json();
+      if (res.ok) {
+        showToast('Member removed from project.', 'info');
+        if (onMembersUpdated) onMembersUpdated(data.members);
+      } else {
+        showToast(data.error || 'Failed to remove member.', 'error');
+      }
+    } catch (err) {
+      showToast('Failed to remove member.', 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+      <div className="w-full max-w-lg glass border border-white/8 p-6 flex flex-col gap-5 relative animate-fade-in">
+        <div className="flex justify-between items-center">
+          <h2 className="text-xl font-bold font-heading text-white flex items-center gap-2">
+            <i className="fa-solid fa-users text-accent"></i> Project Collaborators
+          </h2>
+          <button onClick={onClose} className="text-text-muted hover:text-white cursor-pointer text-lg">
+            <i className="fa-solid fa-xmark"></i>
+          </button>
+        </div>
+
+        {/* Current Members List */}
+        <div className="flex flex-col gap-2">
+          <h4 className="text-xs font-semibold text-text-secondary uppercase tracking-wider">Current Members ({currentMembers.length})</h4>
+          <div className="max-h-60 overflow-y-auto border border-white/6 rounded-lg bg-black/15 p-2 flex flex-col gap-2">
+            {currentMembers.map((m) => {
+              const isProjectOwner = m.id === project.ownerId || m.id === project.owner_id;
+              return (
+                <div key={m.id} className="flex justify-between items-center p-2.5 rounded-lg bg-white/[0.02] border border-white/5">
+                  <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-full bg-accent/20 border border-accent/30 text-accent font-bold text-xs flex items-center justify-center">
+                      {(m.displayName || m.username || 'U').charAt(0).toUpperCase()}
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-semibold text-white">{m.displayName || m.username}</span>
+                        {isProjectOwner && (
+                          <span className="text-[9px] uppercase font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30 px-1.5 py-0.2 rounded">
+                            Owner
+                          </span>
+                        )}
+                      </div>
+                      <span className="text-[10px] text-text-muted">{m.jobTitle || 'Team Member'}</span>
+                    </div>
+                  </div>
+
+                  {isOwner && !isProjectOwner && (
+                    <button
+                      onClick={() => handleRemoveMember(m.id)}
+                      disabled={loading}
+                      className="text-xs text-red-400 hover:text-red-300 hover:bg-red-500/10 px-2 py-1 rounded transition-all cursor-pointer"
+                      title="Remove Member"
+                    >
+                      Remove
+                    </button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Add Member Form (Owner only) */}
+        {isOwner && (
+          <div className="flex flex-col gap-2 pt-3 border-t border-white/6">
+            <h4 className="text-xs font-semibold text-white flex items-center gap-1.5">
+              <i className="fa-solid fa-user-plus text-accent"></i> Add New Member
+            </h4>
+            <div className="flex gap-2">
+              <select
+                value={selectedUserId}
+                onChange={(e) => setSelectedUserId(e.target.value)}
+                className="flex-1 bg-black/30 border border-white/10 text-white px-3 py-2 rounded-lg text-xs transition-all focus:outline-none focus:border-accent"
+              >
+                <option value="">-- Select Team Member --</option>
+                {availableCandidates.map((u) => (
+                  <option key={u.id} value={u.id}>
+                    {u.displayName} ({u.jobTitle || u.username})
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                onClick={handleAddMember}
+                disabled={loading || !selectedUserId}
+                className="px-4 py-2 bg-accent hover:bg-accent-hover text-white rounded-lg text-xs font-semibold cursor-pointer disabled:opacity-50"
+              >
+                + Add
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}

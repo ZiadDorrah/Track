@@ -1,4 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { ProjectMembersModal } from '../Modals/Modals.jsx';
+import { useCurrentUser } from '../../context/CurrentUserContext.jsx';
 import './ProjectDetail.css';
 
 function formatDateTimeUS(dateStr) {
@@ -351,10 +353,15 @@ export default function ProjectDetail({
   onStartTimer,
   onStopTimer,
   escapeHTML,
+  showToast,
 }) {
+  const { user } = useCurrentUser();
   const [searchQuery, setSearchQuery] = useState('');
   const [priorityFilter, setPriorityFilter] = useState('all');
   const [viewMode, setViewMode] = useState('kanban'); // kanban, list
+  const [isMembersModalOpen, setIsMembersModalOpen] = useState(false);
+
+  const isOwner = Boolean(user && project && (user.id === project.ownerId || user.id === project.owner_id));
   
   // Drag and Drop state
   const [dragOverColumn, setDragOverColumn] = useState(null);
@@ -480,6 +487,37 @@ export default function ProjectDetail({
               </a>
             )}
             
+            {/* Project Members Avatar Stack & Manage Button */}
+            <div className="flex items-center gap-2 bg-white/4 border border-white/6 px-2.5 py-1 rounded-lg">
+              {project.members && project.members.length > 0 && (
+                <div className="flex -space-x-2 overflow-hidden select-none">
+                  {project.members.slice(0, 4).map((m) => (
+                    <div
+                      key={m.id}
+                      className="w-6 h-6 rounded-full bg-accent/30 border border-white/20 text-accent font-bold text-[9px] flex items-center justify-center ring-2 ring-black"
+                      title={`${m.displayName || m.username} (${m.jobTitle || 'Member'})`}
+                    >
+                      {(m.displayName || m.username || 'U').charAt(0).toUpperCase()}
+                    </div>
+                  ))}
+                  {project.members.length > 4 && (
+                    <div className="w-6 h-6 rounded-full bg-white/10 border border-white/20 text-[9px] font-bold flex items-center justify-center text-white ring-2 ring-black">
+                      +{project.members.length - 4}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <button
+                onClick={() => setIsMembersModalOpen(true)}
+                className="text-xs text-blue-300 hover:text-white font-medium flex items-center gap-1.5 cursor-pointer px-1 py-0.5"
+                title="View & Manage Project Members"
+              >
+                <i className="fa-solid fa-users text-[11px] text-blue-400"></i>
+                <span>{isOwner ? 'Manage Members' : 'Members'} ({project.members ? project.members.length : 0})</span>
+              </button>
+            </div>
+
             {/* Save as Template Button */}
             <button
               onClick={() => {
@@ -963,6 +1001,21 @@ export default function ProjectDetail({
           </div>
         </div>
       )}
+
+      {/* Project Members Modal */}
+      <ProjectMembersModal
+        isOpen={isMembersModalOpen}
+        onClose={() => setIsMembersModalOpen(false)}
+        project={project}
+        isOwner={isOwner}
+        showToast={showToast}
+        onMembersUpdated={(newMembers) => {
+          project.members = newMembers;
+          if (onTaskUpdate) {
+            onTaskUpdate('dummy-noop', {});
+          }
+        }}
+      />
     </div>
   );
 }

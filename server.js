@@ -507,6 +507,28 @@ app.get('/api/users/me/managers', authenticate, async (req, res) => {
   }
 });
 
+// Get all active users in company (for project member management)
+app.get('/api/users/all', authenticate, async (req, res) => {
+  try {
+    const users = await db.all(`
+      SELECT id, username, display_name as displayName, job_title as jobTitle, email
+      FROM users
+      WHERE is_active = 1
+      ORDER BY display_name ASC
+    `);
+    res.json(users.map(u => ({
+      id: u.id,
+      username: u.username,
+      displayName: u.displayName || u.username,
+      jobTitle: u.jobTitle || '',
+      email: u.email || ''
+    })));
+  } catch (err) {
+    console.error('Fetch company users error:', err);
+    res.status(500).json({ error: 'Failed to fetch users.' });
+  }
+});
+
 // Get all recursive reports (direct and indirect) for current user
 app.get('/api/users/me/team/all', authenticate, async (req, res) => {
   try {
@@ -737,11 +759,116 @@ app.delete('/api/projects/:id', authenticate, async (req, res) => {
       return res.status(404).json({ error: 'Project not found or only project owner can delete it.' });
     }
 
+    await db.run('DELETE FROM tasks WHERE project_id = ?', [projectId]);
+    await db.run('DELETE FROM project_members WHERE project_id = ?', [projectId]);
     await db.run('DELETE FROM projects WHERE id = ?', [projectId]);
+
     res.json({ message: 'Project deleted successfully.' });
   } catch (err) {
     console.error('Delete project error:', err);
     res.status(500).json({ error: 'Failed to delete project.' });
+  }
+});
+
+// Add project member (Owner only)
+app.post('/api/projects/:id/members', authenticate, async (req, res) => {
+  try {
+    const projectId = req.params.id;
+    const { userId } = req.body;
+    const me = req.user.id;
+
+    if (!userId) {
+      return res.status(400).json({ error: 'userId is required.' });
+    }
+
+    const project = await db.get('SELECT * FROM projects WHERE id = ?', [projectId]);
+    if (!project) {
+      return res.status(404).json({ error: 'Project not found.' });
+    }
+
+    if (project.owner_id !== me) {
+      return res.status(403).json({ error: 'Forbidden. Only the project owner can add project members.' });
+    }
+
+    const targetUser = await db.get('SELECT id, username, display_name, job_title, email FROM users WHERE id = ? AND is_active = 1', [userId]);
+    if (!targetUser) {
+      return res.status(404).json({ error: 'Target user not found or inactive.' });
+    }
+
+    const memberId = uuidv4();
+    const createdAt = new Date().toISOString();
+
+    await db.run(`
+      INSERT OR IGNORE INTO project_members (id, project_id, user_id, added_by_id, created_at)
+      VALUES (?, ?, ?, ?, ?)
+    `, [memberId, projectId, userId, me, createdAt]);
+
+    const updatedMembers = await db.all(`
+      SELECT u.id, u.username, u.display_name as displayName, u.job_title as jobTitle, u.email, pm.created_at as joinedAt
+      FROM project_members pm
+      JOIN users u ON pm.user_id = u.id
+      WHERE pm.project_id = ?
+    `, [projectId]);
+
+    res.status(201).json({
+      message: 'Member added successfully.',
+      members: updatedMembers.map(m => ({
+        id: m.id,
+        username: m.username,
+        displayName: m.displayName || m.username,
+        jobTitle: m.jobTitle || '',
+        email: m.email || '',
+        joinedAt: m.joinedAt
+      }))
+    });
+  } catch (err) {
+    console.error('Add project member error:', err);
+    res.status(500).json({ error: 'Failed to add project member.' });
+  }
+});
+
+// Remove project member (Owner only)
+app.delete('/api/projects/:id/members/:userId', authenticate, async (req, res) => {
+  try {
+    const { id: projectId, userId } = req.params;
+    const me = req.user.id;
+
+    const project = await db.get('SELECT * FROM projects WHERE id = ?', [projectId]);
+    if (!project) {
+      return res.status(404).json({ error: 'Project not found.' });
+    }
+
+    if (project.owner_id !== me) {
+      return res.status(403).json({ error: 'Forbidden. Only the project owner can remove project members.' });
+    }
+
+    if (userId === project.owner_id) {
+      return res.status(400).json({ error: 'Project owner cannot be removed from project members.' });
+    }
+
+    await db.run('DELETE FROM project_members WHERE project_id = ? AND user_id = ?', [projectId, userId]);
+
+    const updatedMembers = await db.all(`
+      SELECT u.id, u.username, u.display_name as displayName, u.job_title as jobTitle, u.email, pm.created_at as joinedAt
+      FROM project_members pm
+      JOIN users u ON pm.user_id = u.id
+      WHERE pm.project_id = ?
+    `, [projectId]);
+
+    res.json({
+      message: 'Member removed successfully.',
+      members: updatedMembers.map(m => ({
+        id: m.id,
+        username: m.username,
+        displayName: m.displayName || m.username,
+        jobTitle: m.jobTitle || '',
+        email: m.email || '',
+        joinedAt: m.joinedAt
+      }))
+    });
+  } catch (err) {
+    console.error('Remove project member error:', err);
+    res.status(500).json({ error: 'Failed to remove project member.' });
   }
 });
 
