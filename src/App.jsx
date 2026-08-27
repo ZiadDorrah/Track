@@ -1,14 +1,18 @@
 import React, { useState, useEffect } from 'react';
+import { Routes, Route, useNavigate, useLocation, useParams } from 'react-router-dom';
 import Auth from './components/Auth/Auth.jsx';
 import Dashboard from './components/Dashboard/Dashboard.jsx';
 import ProjectDetail from './components/ProjectDetail/ProjectDetail.jsx';
 import Settings from './components/Settings/Settings.jsx';
+import Team from './components/Team/Team.jsx';
+import ManagerDashboard from './components/Reports/ManagerDashboard.jsx';
 import { ProjectModal, TaskModal } from './components/Modals/Modals.jsx';
 import Pomodoro from './components/Pomodoro/Pomodoro.jsx';
 import GlobalSearch from './components/GlobalSearch/GlobalSearch.jsx';
 import PriorityMatrix from './components/PriorityMatrix/PriorityMatrix.jsx';
 import WeeklyReview from './components/WeeklyReview/WeeklyReview.jsx';
 import Analytics from './components/Analytics/Analytics.jsx';
+import { useCurrentUser } from './context/CurrentUserContext.jsx';
 import { playCompletionChime } from './utils/audio.js';
 
 function escapeHTML(str) {
@@ -43,17 +47,49 @@ function formatDateTimeUS(dateStr) {
   return `${mm}/${dd}/${yyyy}`;
 }
 
+function ProjectDetailRoute({ projects, onEditProject, onDeleteProject, onAddTask, onEditTask, onDeleteTask, onTaskUpdate, onBulkTaskUpdate, onSaveAsTemplate, onStartTimer, onStopTimer, escapeHTML }) {
+  const { projectId } = useParams();
+  const navigate = useNavigate();
+  const project = projects.find(p => p.id === projectId);
+
+  if (!project) {
+    return (
+      <div className="glass border border-white/6 p-8 text-center animate-fade-in">
+        <h3 className="text-lg font-bold text-white mb-2">Project Not Found</h3>
+        <p className="text-xs text-text-secondary mb-4">The requested project could not be found or you do not have permission to view it.</p>
+        <button onClick={() => navigate('/dashboard')} className="px-4 py-2 bg-accent text-white rounded-lg text-xs font-semibold cursor-pointer">
+          Back to Dashboard
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <ProjectDetail
+      project={project}
+      onNavigate={(view) => navigate(view === 'dashboard' ? '/dashboard' : `/${view}`)}
+      onEditProject={onEditProject}
+      onDeleteProject={onDeleteProject}
+      onAddTask={onAddTask}
+      onEditTask={onEditTask}
+      onDeleteTask={onDeleteTask}
+      onTaskUpdate={onTaskUpdate}
+      onBulkTaskUpdate={onBulkTaskUpdate}
+      onSaveAsTemplate={onSaveAsTemplate}
+      onStartTimer={onStartTimer}
+      onStopTimer={onStopTimer}
+      escapeHTML={escapeHTML}
+    />
+  );
+}
+
 export default function App() {
-  // Authentication & Profile state
-  const [user, setUser] = useState(null);
-  const [authLoading, setAuthLoading] = useState(true);
+  const navigate = useNavigate();
+  const location = useLocation();
+  const { user, setUser, isManager, isAdmin, authLoading, refreshUser } = useCurrentUser();
 
   // Projects data
   const [projects, setProjects] = useState([]);
-  
-  // Navigation states
-  const [activeProjectId, setActiveProjectId] = useState(null);
-  const [activeView, setActiveView] = useState('dashboard'); // dashboard, project-detail, settings
   const [selectedGanttProjects, setSelectedGanttProjects] = useState([]);
 
   // System Configurations
@@ -118,25 +154,7 @@ export default function App() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
-  // Auth session check on mount
-  useEffect(() => {
-    async function checkSession() {
-      try {
-        const response = await fetch('/api/auth/me');
-        if (response.ok) {
-          const data = await response.json();
-          if (data.user) {
-            setUser(data.user);
-          }
-        }
-      } catch (err) {
-        console.error('Session check failed', err);
-      } finally {
-        setAuthLoading(false);
-      }
-    }
-    checkSession();
-  }, []);
+  const activeProjectId = location.pathname.startsWith('/project/') ? location.pathname.split('/project/')[1] : null;
 
   // Fetch Projects & Assignees when user logs in or changes view
   useEffect(() => {
@@ -800,9 +818,9 @@ export default function App() {
         {/* Main Navigation Links */}
         <nav className="flex flex-col gap-1">
           <button
-            onClick={() => { setActiveView('dashboard'); setActiveProjectId(null); }}
+            onClick={() => navigate('/dashboard')}
             className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm font-heading font-medium transition-all text-left cursor-pointer ${
-              activeView === 'dashboard'
+              location.pathname === '/' || location.pathname === '/dashboard'
                 ? 'bg-accent text-white shadow-[0_4px_15px_var(--accent-glow)]'
                 : 'text-text-secondary hover:text-white hover:bg-white/4'
             }`}
@@ -811,9 +829,45 @@ export default function App() {
           </button>
           
           <button
-            onClick={() => { setActiveView('priority-matrix'); setActiveProjectId(null); }}
+            onClick={() => navigate('/team')}
+            className={`w-full flex items-center justify-between px-4 py-2.5 rounded-lg text-sm font-heading font-medium transition-all text-left cursor-pointer ${
+              location.pathname === '/team'
+                ? 'bg-accent text-white shadow-[0_4px_15px_var(--accent-glow)]'
+                : 'text-text-secondary hover:text-white hover:bg-white/4'
+            }`}
+          >
+            <div className="flex items-center gap-3">
+              <i className="fa-solid fa-users text-xs"></i> <span>Team Directory</span>
+            </div>
+            {isManager && (
+              <span className="text-[10px] bg-white/20 text-white font-bold px-1.5 py-0.5 rounded-full">
+                Team
+              </span>
+            )}
+          </button>
+
+          <button
+            onClick={() => navigate('/reports')}
+            className={`w-full flex items-center justify-between px-4 py-2.5 rounded-lg text-sm font-heading font-medium transition-all text-left cursor-pointer ${
+              location.pathname === '/reports'
+                ? 'bg-accent text-white shadow-[0_4px_15px_var(--accent-glow)]'
+                : 'text-text-secondary hover:text-white hover:bg-white/4'
+            }`}
+          >
+            <div className="flex items-center gap-3">
+              <i className="fa-solid fa-chart-pie text-xs"></i> <span>Manager Reports</span>
+            </div>
+            {isManager && (
+              <span className="text-[9px] bg-emerald-500/30 text-emerald-300 font-extrabold px-1.5 py-0.5 rounded-full border border-emerald-500/40">
+                Rollup
+              </span>
+            )}
+          </button>
+
+          <button
+            onClick={() => navigate('/priority-matrix')}
             className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm font-heading font-medium transition-all text-left cursor-pointer ${
-              activeView === 'priority-matrix'
+              location.pathname === '/priority-matrix'
                 ? 'bg-accent text-white shadow-[0_4px_15px_var(--accent-glow)]'
                 : 'text-text-secondary hover:text-white hover:bg-white/4'
             }`}
@@ -822,9 +876,9 @@ export default function App() {
           </button>
 
           <button
-            onClick={() => { setActiveView('weekly-review'); setActiveProjectId(null); }}
+            onClick={() => navigate('/weekly-review')}
             className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm font-heading font-medium transition-all text-left cursor-pointer ${
-              activeView === 'weekly-review'
+              location.pathname === '/weekly-review'
                 ? 'bg-accent text-white shadow-[0_4px_15px_var(--accent-glow)]'
                 : 'text-text-secondary hover:text-white hover:bg-white/4'
             }`}
@@ -833,9 +887,9 @@ export default function App() {
           </button>
 
           <button
-            onClick={() => { setActiveView('analytics'); setActiveProjectId(null); }}
+            onClick={() => navigate('/analytics')}
             className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm font-heading font-medium transition-all text-left cursor-pointer ${
-              activeView === 'analytics'
+              location.pathname === '/analytics'
                 ? 'bg-accent text-white shadow-[0_4px_15px_var(--accent-glow)]'
                 : 'text-text-secondary hover:text-white hover:bg-white/4'
             }`}
@@ -844,9 +898,9 @@ export default function App() {
           </button>
 
           <button
-            onClick={() => { setActiveView('settings'); setActiveProjectId(null); }}
+            onClick={() => navigate('/settings')}
             className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm font-heading font-medium transition-all text-left cursor-pointer ${
-              activeView === 'settings'
+              location.pathname === '/settings'
                 ? 'bg-accent text-white shadow-[0_4px_15px_var(--accent-glow)]'
                 : 'text-text-secondary hover:text-white hover:bg-white/4'
             }`}
@@ -874,12 +928,12 @@ export default function App() {
             ) : (
               projects.map(p => {
                 const pendingCount = (p.tasks || []).filter(t => t.status !== 'done').length;
-                const isActive = activeView === 'project-detail' && activeProjectId === p.id;
+                const isActive = location.pathname === `/project/${p.id}`;
 
                 return (
                   <button
                     key={p.id}
-                    onClick={() => { setActiveProjectId(p.id); setActiveView('project-detail'); }}
+                    onClick={() => navigate(`/project/${p.id}`)}
                     className={`w-full flex justify-between items-center px-3.5 py-2.5 rounded-lg text-xs font-semibold tracking-wide transition-all text-left cursor-pointer truncate ${
                       isActive
                         ? 'bg-white/8 text-white border border-white/10'
@@ -905,71 +959,95 @@ export default function App() {
 
       {/* Main Container Content */}
       <main className="p-8 overflow-y-auto w-full max-w-full">
-        {activeView === 'dashboard' && (
-          <Dashboard
-            projects={projects}
-            templates={templates}
-            onCreateFromTemplate={handleCreateProjectFromTemplate}
-            onProjectSelect={(id) => { setActiveProjectId(id); setActiveView('project-detail'); }}
-            onTaskEdit={(task, projId) => { setActiveProjectId(projId); setTaskModal({ isOpen: true, data: task }); }}
-            onTaskUpdate={handleTaskUpdate}
-            onStartTimer={handleStartTimer}
-            onStopTimer={handleStopTimer}
-            selectedGanttProjects={selectedGanttProjects}
-            onSelectedGanttProjectsChange={setSelectedGanttProjects}
-            escapeHTML={escapeHTML}
-          />
-        )}
+        <Routes>
+          <Route path="/" element={
+            <Dashboard
+              projects={projects}
+              templates={templates}
+              onCreateFromTemplate={handleCreateProjectFromTemplate}
+              onProjectSelect={(id) => navigate(`/project/${id}`)}
+              onTaskEdit={(task, projId) => { navigate(`/project/${projId}`); setTaskModal({ isOpen: true, data: task }); }}
+              onTaskUpdate={handleTaskUpdate}
+              onStartTimer={handleStartTimer}
+              onStopTimer={handleStopTimer}
+              selectedGanttProjects={selectedGanttProjects}
+              onSelectedGanttProjectsChange={setSelectedGanttProjects}
+              escapeHTML={escapeHTML}
+            />
+          } />
+          <Route path="/dashboard" element={
+            <Dashboard
+              projects={projects}
+              templates={templates}
+              onCreateFromTemplate={handleCreateProjectFromTemplate}
+              onProjectSelect={(id) => navigate(`/project/${id}`)}
+              onTaskEdit={(task, projId) => { navigate(`/project/${projId}`); setTaskModal({ isOpen: true, data: task }); }}
+              onTaskUpdate={handleTaskUpdate}
+              onStartTimer={handleStartTimer}
+              onStopTimer={handleStopTimer}
+              selectedGanttProjects={selectedGanttProjects}
+              onSelectedGanttProjectsChange={setSelectedGanttProjects}
+              escapeHTML={escapeHTML}
+            />
+          } />
 
-        {activeView === 'priority-matrix' && (
-          <PriorityMatrix
-            projects={projects}
-            onTaskUpdate={handleTaskUpdate}
-            onTaskEdit={(task, projId) => { setActiveProjectId(projId); setTaskModal({ isOpen: true, data: task }); }}
-          />
-        )}
+          <Route path="/priority-matrix" element={
+            <PriorityMatrix
+              projects={projects}
+              onTaskUpdate={handleTaskUpdate}
+              onTaskEdit={(task, projId) => { navigate(`/project/${projId}`); setTaskModal({ isOpen: true, data: task }); }}
+            />
+          } />
 
-        {activeView === 'weekly-review' && (
-          <WeeklyReview
-            projects={projects}
-            onTaskUpdate={handleTaskUpdate}
-          />
-        )}
+          <Route path="/weekly-review" element={
+            <WeeklyReview
+              projects={projects}
+              onTaskUpdate={handleTaskUpdate}
+            />
+          } />
 
-        {activeView === 'analytics' && (
-          <Analytics
-            projects={projects}
-          />
-        )}
+          <Route path="/analytics" element={
+            <Analytics
+              projects={projects}
+            />
+          } />
 
-        {activeView === 'project-detail' && activeProject && (
-          <ProjectDetail
-            project={activeProject}
-            onNavigate={(view) => { setActiveView(view); setActiveProjectId(null); }}
-            onEditProject={(proj) => setProjectModal({ isOpen: true, data: proj })}
-            onDeleteProject={handleProjectDelete}
-            onAddTask={() => setTaskModal({ isOpen: true, data: null })}
-            onEditTask={(task) => setTaskModal({ isOpen: true, data: task })}
-            onDeleteTask={handleTaskDelete}
-            onTaskUpdate={handleTaskUpdate}
-            onBulkTaskUpdate={handleBulkTaskUpdate}
-            onSaveAsTemplate={handleSaveProjectAsTemplate}
-            onStartTimer={handleStartTimer}
-            onStopTimer={handleStopTimer}
-            escapeHTML={escapeHTML}
-          />
-        )}
+          <Route path="/team" element={
+            <Team showToast={showToast} />
+          } />
 
-        {activeView === 'settings' && (
-          <Settings
-            theme={theme}
-            onThemeChange={setTheme}
-            themeMode={themeMode}
-            onThemeModeChange={setThemeMode}
-            completionSound={completionSound}
-            onCompletionSoundChange={setCompletionSound}
-          />
-        )}
+          <Route path="/reports" element={
+            <ManagerDashboard showToast={showToast} />
+          } />
+
+          <Route path="/project/:projectId" element={
+            <ProjectDetailRoute
+              projects={projects}
+              onEditProject={(proj) => setProjectModal({ isOpen: true, data: proj })}
+              onDeleteProject={handleProjectDelete}
+              onAddTask={() => setTaskModal({ isOpen: true, data: null })}
+              onEditTask={(task) => setTaskModal({ isOpen: true, data: task })}
+              onDeleteTask={handleTaskDelete}
+              onTaskUpdate={handleTaskUpdate}
+              onBulkTaskUpdate={handleBulkTaskUpdate}
+              onSaveAsTemplate={handleSaveProjectAsTemplate}
+              onStartTimer={handleStartTimer}
+              onStopTimer={handleStopTimer}
+              escapeHTML={escapeHTML}
+            />
+          } />
+
+          <Route path="/settings" element={
+            <Settings
+              theme={theme}
+              onThemeChange={setTheme}
+              themeMode={themeMode}
+              onThemeModeChange={setThemeMode}
+              completionSound={completionSound}
+              onCompletionSoundChange={setCompletionSound}
+            />
+          } />
+        </Routes>
       </main>
 
       {/* Modal: Project create/modify */}

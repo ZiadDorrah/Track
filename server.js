@@ -4,7 +4,7 @@ const path = require('path');
 const crypto = require('crypto');
 const { v4: uuidv4 } = require('uuid');
 const db = require('./server/db');
-const { getDirectReports, getManagers, getEligibleAssignees } = require('./server/lib/hierarchy');
+const { getDirectReports, getRecursiveReports, getManagers, getEligibleAssignees } = require('./server/lib/hierarchy');
 
 const app = express();
 const PORT = process.env.PORT || 3005;
@@ -504,6 +504,88 @@ app.get('/api/users/me/managers', authenticate, async (req, res) => {
   } catch (err) {
     console.error('Fetch managers error:', err);
     res.status(500).json({ error: 'Failed to fetch managers.' });
+  }
+});
+
+// Get all recursive reports (direct and indirect) for current user
+app.get('/api/users/me/team/all', authenticate, async (req, res) => {
+  try {
+    const me = req.user.id;
+    const reports = await getRecursiveReports(me);
+    res.json(reports);
+  } catch (err) {
+    console.error('Fetch all team reports error:', err);
+    res.status(500).json({ error: 'Failed to fetch team reports.' });
+  }
+});
+
+// Get Manager Rollup Reports (Performance stats per report)
+app.get('/api/reports/manager', authenticate, async (req, res) => {
+  try {
+    const me = req.user.id;
+    const reports = await getRecursiveReports(me);
+    const nowIso = new Date().toISOString();
+
+    let teamTotalTasks = 0;
+    let teamCompletedTasks = 0;
+    let teamOverdueTasks = 0;
+    let teamTotalTimeLogged = 0;
+
+    const reportStatsList = [];
+
+    for (const r of reports) {
+      const userTasks = await db.all(`
+        SELECT id, status, deadline, time_logged
+        FROM tasks
+        WHERE assignee_id = ?
+      `, [r.id]);
+
+      const totalTasks = userTasks.length;
+      const completedTasks = userTasks.filter(t => t.status === 'done').length;
+      const inProgressTasks = userTasks.filter(t => t.status === 'in-progress').length;
+      const todoTasks = userTasks.filter(t => t.status === 'todo').length;
+      const overdueTasks = userTasks.filter(t => t.status !== 'done' && t.deadline && t.deadline < nowIso).length;
+      const totalTimeLogged = userTasks.reduce((sum, t) => sum + (t.time_logged || 0), 0);
+      const completionRate = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
+
+      teamTotalTasks += totalTasks;
+      teamCompletedTasks += completedTasks;
+      teamOverdueTasks += overdueTasks;
+      teamTotalTimeLogged += totalTimeLogged;
+
+      const directManagers = await getManagers(r.id);
+
+      reportStatsList.push({
+        user: r,
+        managers: directManagers,
+        stats: {
+          totalTasks,
+          completedTasks,
+          inProgressTasks,
+          todoTasks,
+          overdueTasks,
+          completionRate,
+          totalTimeLogged
+        }
+      });
+    }
+
+    const teamCompletionRate = teamTotalTasks > 0 ? Math.round((teamCompletedTasks / teamTotalTasks) * 100) : 0;
+
+    res.json({
+      summary: {
+        totalReports: reports.length,
+        teamTotalTasks,
+        teamCompletedTasks,
+        teamCompletionRate,
+        teamOverdueTasks,
+        teamTotalTimeLogged
+      },
+      reports: reportStatsList
+    });
+  } catch (err) {
+    console.error('Fetch manager reports error:', err);
+    res.status(500).json({ error: 'Failed to generate manager performance reports.' });
   }
 });
 
