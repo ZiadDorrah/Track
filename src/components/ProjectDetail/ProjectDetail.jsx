@@ -33,7 +33,9 @@ function TaskCard({
   onStopTimer,
   onOpenNotes,
   todayStr,
-  escapeHTML
+  escapeHTML,
+  orgMembers,
+  currentUserId,
 }) {
   const [menuActive, setMenuActive] = useState(false);
   const [subtasksVisible, setSubtasksVisible] = useState(false);
@@ -320,6 +322,21 @@ function TaskCard({
             <i className="fa-solid fa-comment-dots"></i> {notes.length}
           </button>
 
+          {task.assignedTo && (() => {
+            const assignee = orgMembers?.find(m => m.id === task.assignedTo);
+            const isSelf = task.assignedTo === currentUserId;
+            const label = assignee ? assignee.username.slice(0, 2).toUpperCase() : '??';
+            return (
+              <span
+                className={`w-5 h-5 rounded-full flex items-center justify-center text-[8px] font-bold border flex-shrink-0 ${
+                  isSelf ? 'bg-accent/20 border-accent/40 text-accent' : 'bg-white/10 border-white/20 text-white'
+                }`}
+                title={assignee ? `Assigned to: ${assignee.username}` : 'Assigned'}
+              >
+                {label}
+              </span>
+            );
+          })()}
           {task.reminder && <i className="fa-solid fa-bell text-accent animate-pulse" title="Alarm Enabled"></i>}
           {task.recurring && task.recurring !== 'none' && (
             <span className="px-1 py-0.2 rounded text-[7px] font-extrabold uppercase bg-purple-500/12 text-[#d8b4fe] border border-purple-500/20 flex items-center gap-0.5" title={`Recurring: ${task.recurring}`}>
@@ -351,6 +368,8 @@ export default function ProjectDetail({
   onStartTimer,
   onStopTimer,
   escapeHTML,
+  orgMembers,
+  currentUser,
 }) {
   const [searchQuery, setSearchQuery] = useState('');
   const [priorityFilter, setPriorityFilter] = useState('all');
@@ -698,6 +717,8 @@ export default function ProjectDetail({
                     onOpenNotes={setNotesModalTask}
                     todayStr={todayStr}
                     escapeHTML={escapeHTML}
+                    orgMembers={orgMembers}
+                    currentUserId={currentUser?.id}
                   />
                 ))
               )}
@@ -742,6 +763,8 @@ export default function ProjectDetail({
                     onOpenNotes={setNotesModalTask}
                     todayStr={todayStr}
                     escapeHTML={escapeHTML}
+                    orgMembers={orgMembers}
+                    currentUserId={currentUser?.id}
                   />
                 ))
               )}
@@ -786,6 +809,8 @@ export default function ProjectDetail({
                     onOpenNotes={setNotesModalTask}
                     todayStr={todayStr}
                     escapeHTML={escapeHTML}
+                    orgMembers={orgMembers}
+                    currentUserId={currentUser?.id}
                   />
                 ))
               )}

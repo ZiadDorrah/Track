@@ -9,6 +9,10 @@ import GlobalSearch from './components/GlobalSearch/GlobalSearch.jsx';
 import PriorityMatrix from './components/PriorityMatrix/PriorityMatrix.jsx';
 import WeeklyReview from './components/WeeklyReview/WeeklyReview.jsx';
 import Analytics from './components/Analytics/Analytics.jsx';
+import OrgSetup from './components/OrgSetup/OrgSetup.jsx';
+import AdminPanel from './components/AdminPanel/AdminPanel.jsx';
+import TeamView from './components/TeamView/TeamView.jsx';
+import OrgReports from './components/OrgReports/OrgReports.jsx';
 import { playCompletionChime } from './utils/audio.js';
 
 function escapeHTML(str) {
@@ -48,12 +52,16 @@ export default function App() {
   const [user, setUser] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
 
+  // Org state
+  const [orgStatus, setOrgStatus] = useState(null); // null = loading, { exists: bool }
+  const [org, setOrg] = useState(null);
+
   // Projects data
   const [projects, setProjects] = useState([]);
-  
+
   // Navigation states
   const [activeProjectId, setActiveProjectId] = useState(null);
-  const [activeView, setActiveView] = useState('dashboard'); // dashboard, project-detail, settings
+  const [activeView, setActiveView] = useState('dashboard'); // dashboard, project-detail, settings, admin, team, org-reports
   const [selectedGanttProjects, setSelectedGanttProjects] = useState([]);
 
   // System Configurations
@@ -118,33 +126,54 @@ export default function App() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
-  // Auth session check on mount
+  // Org status check + auth session check on mount
   useEffect(() => {
-    async function checkSession() {
+    async function init() {
       try {
-        const response = await fetch('/api/auth/me');
-        if (response.ok) {
-          const data = await response.json();
-          if (data.user) {
-            setUser(data.user);
-          }
+        const [orgRes, authRes] = await Promise.all([
+          fetch('/api/org/status'),
+          fetch('/api/auth/me'),
+        ]);
+        if (orgRes.ok) {
+          const data = await orgRes.json();
+          setOrgStatus(data);
+        } else {
+          setOrgStatus({ exists: false });
+        }
+        if (authRes.ok) {
+          const data = await authRes.json();
+          if (data.user) setUser(data.user);
         }
       } catch (err) {
-        console.error('Session check failed', err);
+        console.error('Init failed', err);
+        setOrgStatus({ exists: false });
       } finally {
         setAuthLoading(false);
       }
     }
-    checkSession();
+    init();
   }, []);
 
-  // Fetch Projects when user gets logged in
+  // Fetch Projects + org when user gets logged in
   useEffect(() => {
     if (user) {
       fetchProjects();
       loadStartupSetting();
+      if (user.orgId) fetchOrg();
     }
   }, [user]);
+
+  const fetchOrg = async () => {
+    try {
+      const res = await fetch('/api/org');
+      if (res.ok) {
+        const data = await res.json();
+        setOrg(data);
+      }
+    } catch (err) {
+      console.error('Failed to fetch org', err);
+    }
+  };
 
   // Alarms check loop
   useEffect(() => {
@@ -246,6 +275,7 @@ export default function App() {
   const handleLogoutCleanup = () => {
     setUser(null);
     setProjects([]);
+    setOrg(null);
     setActiveProjectId(null);
     setActiveView('dashboard');
   };
@@ -671,6 +701,56 @@ export default function App() {
     }
   };
 
+  // Org member management
+  const handleMemberCreate = async (payload) => {
+    try {
+      const res = await fetch('/api/org/members', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to add member.');
+      showToast('Member added successfully.', 'success');
+      await fetchOrg();
+    } catch (err) {
+      showToast(err.message, 'error');
+    }
+  };
+
+  const handleMemberUpdate = async (memberId, payload) => {
+    try {
+      const res = await fetch(`/api/org/members/${memberId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to update member.');
+      showToast('Member updated successfully.', 'success');
+      await fetchOrg();
+    } catch (err) {
+      showToast(err.message, 'error');
+    }
+  };
+
+  const handleMemberDelete = async (memberId) => {
+    try {
+      const res = await fetch(`/api/org/members/${memberId}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to remove member.');
+      showToast('Member removed.', 'success');
+      await fetchOrg();
+    } catch (err) {
+      showToast(err.message, 'error');
+    }
+  };
+
+  const handleAssignTask = (member) => {
+    // Open task modal pre-targeted at member's first project or active project
+    setTaskModal({ isOpen: true, data: null, preAssignTo: member.id });
+  };
+
   const handleSearchResultClick = (projectId, task = null) => {
     setActiveProjectId(projectId);
     setActiveView('project-detail');
@@ -688,6 +768,21 @@ export default function App() {
           <span className="text-sm font-semibold tracking-wide text-text-secondary select-none">Loading Workspace...</span>
         </div>
       </div>
+    );
+  }
+
+  // Org Setup wizard (first-time run, no org exists)
+  if (orgStatus && !orgStatus.exists) {
+    return (
+      <OrgSetup
+        onComplete={(loggedInUser) => {
+          setUser(loggedInUser);
+          setOrgStatus({ exists: true });
+          fetchOrg();
+          fetchProjects();
+        }}
+        showToast={showToast}
+      />
     );
   }
 
@@ -797,7 +892,12 @@ export default function App() {
           </div>
           <div className="flex flex-col overflow-hidden flex-1">
             <span className="text-sm font-semibold text-white truncate max-w-full" title={user.username}>{user.username}</span>
-            <span className="text-[10px] text-text-muted font-medium">Local Workspace</span>
+            <span className="text-[10px] text-text-muted font-medium">
+              {user.orgId && org ? org.name : 'Local Workspace'}
+              {user.role && user.role !== 'employee' && (
+                <span className={`ml-1 font-bold ${user.role === 'admin' ? 'text-red-300' : 'text-blue-300'}`}>· {user.role}</span>
+              )}
+            </span>
           </div>
           <button
             onClick={handleLogout}
@@ -864,6 +964,49 @@ export default function App() {
           >
             <i className="fa-solid fa-sliders text-xs"></i> <span>Settings</span>
           </button>
+
+          {/* Org-mode navigation */}
+          {user.orgId && (
+            <>
+              <div className="h-px bg-white/6 my-1"></div>
+              {(user.role === 'manager' || user.role === 'admin') && (
+                <button
+                  onClick={() => { setActiveView('team'); setActiveProjectId(null); }}
+                  className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm font-heading font-medium transition-all text-left cursor-pointer ${
+                    activeView === 'team'
+                      ? 'bg-accent text-white shadow-[0_4px_15px_var(--accent-glow)]'
+                      : 'text-text-secondary hover:text-white hover:bg-white/4'
+                  }`}
+                >
+                  <i className="fa-solid fa-users text-xs"></i> <span>My Team</span>
+                </button>
+              )}
+              {(user.role === 'manager' || user.role === 'admin') && (
+                <button
+                  onClick={() => { setActiveView('org-reports'); setActiveProjectId(null); }}
+                  className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm font-heading font-medium transition-all text-left cursor-pointer ${
+                    activeView === 'org-reports'
+                      ? 'bg-accent text-white shadow-[0_4px_15px_var(--accent-glow)]'
+                      : 'text-text-secondary hover:text-white hover:bg-white/4'
+                  }`}
+                >
+                  <i className="fa-solid fa-chart-pie text-xs"></i> <span>Org Reports</span>
+                </button>
+              )}
+              {user.role === 'admin' && (
+                <button
+                  onClick={() => { setActiveView('admin'); setActiveProjectId(null); }}
+                  className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm font-heading font-medium transition-all text-left cursor-pointer ${
+                    activeView === 'admin'
+                      ? 'bg-accent text-white shadow-[0_4px_15px_var(--accent-glow)]'
+                      : 'text-text-secondary hover:text-white hover:bg-white/4'
+                  }`}
+                >
+                  <i className="fa-solid fa-shield-halved text-xs"></i> <span>Admin Panel</span>
+                </button>
+              )}
+            </>
+          )}
         </nav>
 
         {/* Projects Sidebar Section */}
@@ -968,6 +1111,38 @@ export default function App() {
             onStartTimer={handleStartTimer}
             onStopTimer={handleStopTimer}
             escapeHTML={escapeHTML}
+            orgMembers={org?.members}
+            currentUser={user}
+          />
+        )}
+
+        {activeView === 'team' && (
+          <TeamView
+            currentUser={user}
+            org={org}
+            projects={projects}
+            onAssignTask={handleAssignTask}
+            showToast={showToast}
+          />
+        )}
+
+        {activeView === 'org-reports' && (
+          <OrgReports
+            currentUser={user}
+            org={org}
+            projects={projects}
+            showToast={showToast}
+          />
+        )}
+
+        {activeView === 'admin' && (
+          <AdminPanel
+            currentUser={user}
+            org={org}
+            onMemberCreate={handleMemberCreate}
+            onMemberUpdate={handleMemberUpdate}
+            onMemberDelete={handleMemberDelete}
+            showToast={showToast}
           />
         )}
 
@@ -998,10 +1173,12 @@ export default function App() {
       <TaskModal
         isOpen={taskModal.isOpen}
         onClose={() => setTaskModal({ isOpen: false, data: null })}
-        task={taskModal.data}
+        task={taskModal.data ? { ...taskModal.data, assignedTo: taskModal.data.assignedTo || taskModal.preAssignTo } : null}
         project={taskModal.data ? projects.find(p => p.tasks.some(t => t.id === taskModal.data.id)) : projects.find(p => p.id === activeProjectId)}
         onSubmit={handleTaskSubmit}
         showToast={showToast}
+        currentUser={user}
+        orgMembers={org?.members}
       />
 
       {/* Global Pomodoro Timer Widget */}

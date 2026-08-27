@@ -133,7 +133,7 @@ export function ProjectModal({ isOpen, onClose, project, onSubmit, showToast }) 
   );
 }
 
-export function TaskModal({ isOpen, onClose, task, project, onSubmit, showToast }) {
+export function TaskModal({ isOpen, onClose, task, project, onSubmit, showToast, currentUser, orgMembers }) {
   const [title, setTitle] = useState('');
   const [desc, setDesc] = useState('');
   const [status, setStatus] = useState('todo');
@@ -144,6 +144,7 @@ export function TaskModal({ isOpen, onClose, task, project, onSubmit, showToast 
   const [recurring, setRecurring] = useState('none');
   const [subtasks, setSubtasks] = useState([]);
   const [newSubtaskText, setNewSubtaskText] = useState('');
+  const [assignedTo, setAssignedTo] = useState('');
 
   // Tier 2 states
   const [urgent, setUrgent] = useState(false);
@@ -182,6 +183,7 @@ export function TaskModal({ isOpen, onClose, task, project, onSubmit, showToast 
       setUrgent(task.urgent || false);
       setImportant(task.important || false);
       setCustomFields(task.customFields || {});
+      setAssignedTo(task.assignedTo || '');
     } else {
       setTitle('');
       setDesc('');
@@ -195,6 +197,7 @@ export function TaskModal({ isOpen, onClose, task, project, onSubmit, showToast 
       setUrgent(false);
       setImportant(false);
       setCustomFields({});
+      setAssignedTo(currentUser?.id || '');
     }
     setNewFieldName('');
     setNewFieldValue('');
@@ -265,6 +268,7 @@ export function TaskModal({ isOpen, onClose, task, project, onSubmit, showToast 
       urgent,
       important,
       customFields,
+      assignedTo: assignedTo || undefined,
     });
   };
 
@@ -305,6 +309,31 @@ export function TaskModal({ isOpen, onClose, task, project, onSubmit, showToast 
               className="bg-black/20 border border-white/6 text-white px-3 py-2.5 rounded-lg text-sm transition-all focus:outline-none focus:border-accent focus:shadow-[0_0_12px_var(--accent-glow)] focus:bg-black/35 resize-none"
             />
           </div>
+
+          {/* Assign To (org mode only, for managers/admins) */}
+          {currentUser?.orgId && orgMembers && orgMembers.length > 0 && (currentUser.role === 'manager' || currentUser.role === 'admin') && (
+            <div className="flex flex-col gap-1.5">
+              <label className="text-sm font-medium text-text-secondary">
+                <i className="fa-solid fa-user-tag mr-1.5"></i> Assign To
+              </label>
+              <select
+                value={assignedTo}
+                onChange={(e) => setAssignedTo(e.target.value)}
+                className="bg-black/20 border border-white/6 text-white px-3 py-2.5 rounded-lg text-sm transition-all focus:outline-none focus:border-accent focus:bg-[#0d0e15]"
+              >
+                <option value="">— Unassigned —</option>
+                {currentUser.role === 'admin'
+                  ? orgMembers.filter(m => m.id !== currentUser.id).map(m => (
+                      <option key={m.id} value={m.id}>{m.username}{m.jobTitle ? ` (${m.jobTitle})` : ''}</option>
+                    ))
+                  : orgMembers.filter(m => (m.managerIds || []).includes(currentUser.id)).map(m => (
+                      <option key={m.id} value={m.id}>{m.username}{m.jobTitle ? ` (${m.jobTitle})` : ''}</option>
+                    ))
+                }
+                <option value={currentUser.id}>Myself ({currentUser.username})</option>
+              </select>
+            </div>
+          )}
 
           {/* Sub-tasks checklist section */}
           <div className="flex flex-col gap-1.5">
