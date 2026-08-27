@@ -9,6 +9,7 @@ import GlobalSearch from './components/GlobalSearch/GlobalSearch.jsx';
 import PriorityMatrix from './components/PriorityMatrix/PriorityMatrix.jsx';
 import WeeklyReview from './components/WeeklyReview/WeeklyReview.jsx';
 import Analytics from './components/Analytics/Analytics.jsx';
+import { playCompletionChime } from './utils/audio.js';
 
 function escapeHTML(str) {
   if (!str) return '';
@@ -58,6 +59,9 @@ export default function App() {
   // System Configurations
   const [startupEnabled, setStartupEnabled] = useState(false);
   const [theme, setTheme] = useState(localStorage.getItem('track-theme') || 'violet');
+  const [themeMode, setThemeMode] = useState(localStorage.getItem('track-theme-mode') || 'dark');
+  const [completionSound, setCompletionSound] = useState(localStorage.getItem('track-completion-sound') !== 'false');
+  const [templates, setTemplates] = useState([]);
 
   // Toasts notifications queue
   const [toasts, setToasts] = useState([]);
@@ -77,6 +81,30 @@ export default function App() {
     document.documentElement.setAttribute('data-theme', theme);
     localStorage.setItem('track-theme', theme);
   }, [theme]);
+
+  // Apply light/dark/system mode
+  useEffect(() => {
+    const applyMode = () => {
+      let mode = themeMode;
+      if (mode === 'system') {
+        mode = window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+      }
+      document.documentElement.setAttribute('data-mode', mode);
+    };
+    applyMode();
+    localStorage.setItem('track-theme-mode', themeMode);
+
+    if (themeMode === 'system' && window.matchMedia) {
+      const mq = window.matchMedia('(prefers-color-scheme: light)');
+      const listener = () => applyMode();
+      mq.addEventListener('change', listener);
+      return () => mq.removeEventListener('change', listener);
+    }
+  }, [themeMode]);
+
+  useEffect(() => {
+    localStorage.setItem('track-completion-sound', completionSound ? 'true' : 'false');
+  }, [completionSound]);
 
   // Global Ctrl+K search hotkey listener
   useEffect(() => {
@@ -439,6 +467,12 @@ export default function App() {
         throw new Error(data.error || 'Failed to update task.');
       }
       
+      if (statusTransitionedToDone) {
+        if (completionSound) {
+          playCompletionChime();
+        }
+      }
+
       if (!silent) {
         showToast('Task updated successfully.', 'success');
       }
@@ -448,6 +482,82 @@ export default function App() {
       }
 
       await fetchProjects();
+    } catch (err) {
+      if (!silent) showToast(err.message, 'error');
+    }
+  };
+
+  const fetchTemplates = async () => {
+    try {
+      const res = await fetch('/api/templates');
+      if (res.ok) {
+        const data = await res.json();
+        setTemplates(data);
+      }
+    } catch (err) {
+      console.error('Failed to fetch templates:', err);
+    }
+  };
+
+  useEffect(() => {
+    if (user) {
+      fetchTemplates();
+    }
+  }, [user]);
+
+  const handleBulkTaskUpdate = async (projectId, taskIds, action, value) => {
+    try {
+      const res = await fetch(`/api/projects/${projectId}/tasks/bulk`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ taskIds, action, value })
+      });
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || 'Bulk operation failed.');
+      }
+      if (action === 'status' && value === 'done' && completionSound) {
+        playCompletionChime();
+      }
+      showToast(`Bulk ${action} applied to ${taskIds.length} tasks.`, 'success');
+      await fetchProjects();
+    } catch (err) {
+      showToast(err.message, 'error');
+    }
+  };
+
+  const handleSaveProjectAsTemplate = async (project, templateName, templateDesc) => {
+    try {
+      const res = await fetch('/api/templates', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: templateName || `${project.name} Template`,
+          description: templateDesc || project.description,
+          tasks: project.tasks || []
+        })
+      });
+      if (!res.ok) throw new Error('Failed to save template.');
+      showToast('Project saved as template!', 'success');
+      await fetchTemplates();
+    } catch (err) {
+      showToast(err.message, 'error');
+    }
+  };
+
+  const handleCreateProjectFromTemplate = async (templateId, name, description) => {
+    try {
+      const res = await fetch(`/api/projects/from-template/${templateId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ projectName: name, projectDescription: description })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to create project from template.');
+      showToast('New project created from template!', 'success');
+      await fetchProjects();
+      setActiveProjectId(data.id);
+      setActiveView('project-detail');
     } catch (err) {
       showToast(err.message, 'error');
     }
@@ -809,6 +919,8 @@ export default function App() {
         {activeView === 'dashboard' && (
           <Dashboard
             projects={projects}
+            templates={templates}
+            onCreateFromTemplate={handleCreateProjectFromTemplate}
             onProjectSelect={(id) => { setActiveProjectId(id); setActiveView('project-detail'); }}
             onTaskEdit={(task, projId) => { setActiveProjectId(projId); setTaskModal({ isOpen: true, data: task }); }}
             onTaskUpdate={handleTaskUpdate}
@@ -851,6 +963,8 @@ export default function App() {
             onEditTask={(task) => setTaskModal({ isOpen: true, data: task })}
             onDeleteTask={handleTaskDelete}
             onTaskUpdate={handleTaskUpdate}
+            onBulkTaskUpdate={handleBulkTaskUpdate}
+            onSaveAsTemplate={handleSaveProjectAsTemplate}
             onStartTimer={handleStartTimer}
             onStopTimer={handleStopTimer}
             escapeHTML={escapeHTML}
@@ -863,6 +977,10 @@ export default function App() {
             onStartupToggle={handleStartupToggle}
             theme={theme}
             onThemeChange={setTheme}
+            themeMode={themeMode}
+            onThemeModeChange={setThemeMode}
+            completionSound={completionSound}
+            onCompletionSoundChange={setCompletionSound}
           />
         )}
       </main>

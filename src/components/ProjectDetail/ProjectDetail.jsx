@@ -21,7 +21,20 @@ function formatDateTimeUS(dateStr) {
 }
 
 // Single Task Card inside Kanban Column
-function TaskCard({ task, projectId, onEdit, onDelete, onTaskUpdate, onStartTimer, onStopTimer, todayStr, escapeHTML }) {
+function TaskCard({
+  task,
+  projectId,
+  isSelected,
+  onToggleSelect,
+  onEdit,
+  onDelete,
+  onTaskUpdate,
+  onStartTimer,
+  onStopTimer,
+  onOpenNotes,
+  todayStr,
+  escapeHTML
+}) {
   const [menuActive, setMenuActive] = useState(false);
   const [subtasksVisible, setSubtasksVisible] = useState(false);
   const [elapsedTime, setElapsedTime] = useState(task.timeLogged || 0);
@@ -66,6 +79,8 @@ function TaskCard({ task, projectId, onEdit, onDelete, onTaskUpdate, onStartTime
   const totalSubtasks = subtasks.length;
   const percentDone = totalSubtasks === 0 ? 0 : Math.round((completedSubtasks / totalSubtasks) * 100);
 
+  const notes = task.notes || [];
+
   const formatTime = (secs) => {
     const hrs = Math.floor(secs / 3600);
     const mins = Math.floor((secs % 3600) / 60);
@@ -77,11 +92,27 @@ function TaskCard({ task, projectId, onEdit, onDelete, onTaskUpdate, onStartTime
     return `${mins}m ${pad(seconds)}s`;
   };
 
+  const handleCardClick = (e) => {
+    if (e.ctrlKey || e.metaKey || e.shiftKey) {
+      onToggleSelect(task.id);
+    }
+  };
+
   return (
-    <div className={`task-card p-4 relative bg-white/[0.015] border border-white/6 hover:border-white/12 hover:bg-white/[0.03] hover:-translate-y-[2px] rounded-xl flex flex-col gap-3 transition-all duration-300 ${
-      task.priority === 'high' ? 'border-l-4 border-l-red-500' :
-      (task.priority === 'medium' ? 'border-l-4 border-l-yellow-500' : 'border-l-4 border-l-blue-500')
-    }`}>
+    <div
+      draggable="true"
+      onDragStart={(e) => {
+        e.dataTransfer.setData('text/plain', task.id);
+        e.dataTransfer.effectAllowed = 'move';
+      }}
+      onClick={handleCardClick}
+      className={`task-card p-4 relative bg-white/[0.015] border hover:bg-white/[0.03] hover:-translate-y-[2px] rounded-xl flex flex-col gap-3 transition-all duration-300 cursor-grab active:cursor-grabbing select-none ${
+        isSelected ? 'border-accent bg-accent/10 ring-2 ring-accent/30' : 'border-white/6 hover:border-white/12'
+      } ${
+        task.priority === 'high' ? 'border-l-4 border-l-red-500' :
+        (task.priority === 'medium' ? 'border-l-4 border-l-yellow-500' : 'border-l-4 border-l-blue-500')
+      }`}
+    >
       {/* Accent Strip */}
       <div className={`absolute top-0 left-0 w-full h-[3px] rounded-t-xl ${
         task.priority === 'high' ? 'bg-[#f43f5e]' : (task.priority === 'medium' ? 'bg-[#eab308]' : 'bg-[#3b82f6]')
@@ -89,10 +120,20 @@ function TaskCard({ task, projectId, onEdit, onDelete, onTaskUpdate, onStartTime
 
       {/* Header */}
       <div className="flex justify-between items-start gap-2.5">
-        <h4 className="text-sm font-semibold text-white font-heading leading-tight break-words flex-1 pr-1">{task.title}</h4>
+        <div className="flex items-center gap-2 flex-1 pr-1">
+          <input
+            type="checkbox"
+            checked={isSelected}
+            onChange={() => onToggleSelect(task.id)}
+            onClick={(e) => e.stopPropagation()}
+            className="w-3.5 h-3.5 rounded border-white/20 accent-accent cursor-pointer flex-shrink-0"
+            title="Multi-select card"
+          />
+          <h4 className="text-sm font-semibold text-white font-heading leading-tight break-words flex-1">{task.title}</h4>
+        </div>
         
         {/* Dropdown Actions */}
-        <div className="relative" ref={menuRef}>
+        <div className="relative" ref={menuRef} onClick={(e) => e.stopPropagation()}>
           <button
             onClick={() => setMenuActive(!menuActive)}
             className="px-2 py-1 text-text-muted hover:text-white rounded hover:bg-white/5 transition-all text-xs cursor-pointer"
@@ -101,12 +142,18 @@ function TaskCard({ task, projectId, onEdit, onDelete, onTaskUpdate, onStartTime
           </button>
 
           {menuActive && (
-            <div className="absolute right-0 top-full mt-1 w-28 bg-[#0f1016]/95 border border-white/12 rounded-lg shadow-xl py-1 z-20 animate-fade-in">
+            <div className="absolute right-0 top-full mt-1 w-32 bg-[#0f1016]/95 border border-white/12 rounded-lg shadow-xl py-1 z-20 animate-fade-in">
               <button
                 onClick={() => { onEdit(task); setMenuActive(false); }}
                 className="w-full text-left px-3 py-1.5 hover:bg-white/5 text-text-secondary hover:text-white text-[11px] font-medium flex items-center gap-2 cursor-pointer"
               >
                 <i className="fa-solid fa-pen text-[9px]"></i> Edit
+              </button>
+              <button
+                onClick={() => { onOpenNotes(task); setMenuActive(false); }}
+                className="w-full text-left px-3 py-1.5 hover:bg-white/5 text-text-secondary hover:text-white text-[11px] font-medium flex items-center gap-2 cursor-pointer"
+              >
+                <i className="fa-solid fa-note-sticky text-[9px] text-amber-400"></i> Notes ({notes.length})
               </button>
               {task.status !== 'todo' && (
                 <button
@@ -150,7 +197,7 @@ function TaskCard({ task, projectId, onEdit, onDelete, onTaskUpdate, onStartTime
 
       {/* Sub-tasks Checklist Progress Bar */}
       {totalSubtasks > 0 && (
-        <div className="flex flex-col gap-1 mt-0.5 select-none">
+        <div className="flex flex-col gap-1 mt-0.5 select-none" onClick={(e) => e.stopPropagation()}>
           <div className="flex justify-between items-center text-[10px] font-semibold text-text-secondary">
             <button 
               type="button"
@@ -211,7 +258,7 @@ function TaskCard({ task, projectId, onEdit, onDelete, onTaskUpdate, onStartTime
       )}
 
       {/* Play/Pause Timer & Logged Summary */}
-      <div className="flex justify-between items-center bg-white/[0.01] border border-white/4 p-1.5 rounded-lg">
+      <div className="flex justify-between items-center bg-white/[0.01] border border-white/4 p-1.5 rounded-lg" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center gap-2">
           {task.timerStarted ? (
             <button
@@ -264,6 +311,15 @@ function TaskCard({ task, projectId, onEdit, onDelete, onTaskUpdate, onStartTime
         </div>
         
         <div className="flex items-center gap-1.5">
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); onOpenNotes(task); }}
+            className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 text-[9px] font-medium border border-amber-500/20 cursor-pointer"
+            title="Activity Notes"
+          >
+            <i className="fa-solid fa-comment-dots"></i> {notes.length}
+          </button>
+
           {task.reminder && <i className="fa-solid fa-bell text-accent animate-pulse" title="Alarm Enabled"></i>}
           {task.recurring && task.recurring !== 'none' && (
             <span className="px-1 py-0.2 rounded text-[7px] font-extrabold uppercase bg-purple-500/12 text-[#d8b4fe] border border-purple-500/20 flex items-center gap-0.5" title={`Recurring: ${task.recurring}`}>
@@ -290,6 +346,8 @@ export default function ProjectDetail({
   onEditTask,
   onDeleteTask,
   onTaskUpdate,
+  onBulkTaskUpdate,
+  onSaveAsTemplate,
   onStartTimer,
   onStopTimer,
   escapeHTML,
@@ -297,10 +355,73 @@ export default function ProjectDetail({
   const [searchQuery, setSearchQuery] = useState('');
   const [priorityFilter, setPriorityFilter] = useState('all');
   const [viewMode, setViewMode] = useState('kanban'); // kanban, list
+  
+  // Drag and Drop state
+  const [dragOverColumn, setDragOverColumn] = useState(null);
+
+  // Multi-select state
+  const [selectedTaskIds, setSelectedTaskIds] = useState([]);
+
+  // Notes Modal state
+  const [notesModalTask, setNotesModalTask] = useState(null);
+  const [newNoteText, setNewNoteText] = useState('');
 
   if (!project) return null;
 
   const todayStr = new Date(new Date().getTime() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+
+  // Multi-select handlers
+  const handleToggleSelect = (taskId) => {
+    setSelectedTaskIds(prev => 
+      prev.includes(taskId) ? prev.filter(id => id !== taskId) : [...prev, taskId]
+    );
+  };
+
+  const handleSelectAll = () => {
+    const allIds = (project.tasks || []).map(t => t.id);
+    setSelectedTaskIds(allIds);
+  };
+
+  const handleClearSelection = () => {
+    setSelectedTaskIds([]);
+  };
+
+  // Drag and Drop handlers
+  const handleDragOver = (e, columnStatus) => {
+    e.preventDefault();
+    if (dragOverColumn !== columnStatus) {
+      setDragOverColumn(columnStatus);
+    }
+  };
+
+  const handleDragLeave = (e) => {
+    e.preventDefault();
+    setDragOverColumn(null);
+  };
+
+  const handleDrop = (e, targetStatus) => {
+    e.preventDefault();
+    setDragOverColumn(null);
+    const taskId = e.dataTransfer.getData('text/plain');
+    if (taskId) {
+      onTaskUpdate(taskId, { status: targetStatus });
+    }
+  };
+
+  // Task Notes Add handler
+  const handleAddNote = () => {
+    if (!newNoteText.trim() || !notesModalTask) return;
+    const nowStr = new Date().toISOString();
+    const newNote = {
+      id: String(Date.now()),
+      text: newNoteText.trim(),
+      createdAt: nowStr
+    };
+    const updatedNotes = [...(notesModalTask.notes || []), newNote];
+    onTaskUpdate(notesModalTask.id, { notes: updatedNotes });
+    setNotesModalTask({ ...notesModalTask, notes: updatedNotes });
+    setNewNoteText('');
+  };
 
   // Filtering logic
   let filteredTasks = project.tasks || [];
@@ -320,7 +441,7 @@ export default function ProjectDetail({
   const doneTasks = filteredTasks.filter(t => t.status === 'done');
 
   return (
-    <div className="flex flex-col gap-6 animate-fade-in">
+    <div className="flex flex-col gap-6 animate-fade-in relative">
       {/* Header Breadcrumbs */}
       <div>
         <div className="flex items-center gap-2 text-xs text-text-muted mb-2 select-none">
@@ -335,13 +456,13 @@ export default function ProjectDetail({
             <p className="text-sm text-text-secondary mt-1 leading-relaxed break-words">{project.description || 'No description provided for this project.'}</p>
           </div>
 
-          <div className="flex items-center gap-3.5 flex-wrap flex-shrink-0 mt-1">
+          <div className="flex items-center gap-2.5 flex-wrap flex-shrink-0 mt-1">
             {project.url && (
               <a
                 href={project.url}
                 target="_blank"
                 rel="noreferrer"
-                className="px-4 py-2 bg-white/5 border border-white/6 hover:bg-white/10 hover:border-white/12 text-white font-heading font-medium text-xs rounded-lg flex items-center gap-2 transition-all shadow-md"
+                className="px-3 py-1.5 bg-white/5 border border-white/6 hover:bg-white/10 hover:border-white/12 text-white font-heading font-medium text-xs rounded-lg flex items-center gap-2 transition-all shadow-md"
                 title="Visit Site"
               >
                 <i className="fa-solid fa-globe text-text-secondary"></i> <span>Live URL</span>
@@ -352,12 +473,27 @@ export default function ProjectDetail({
                 href={project.github}
                 target="_blank"
                 rel="noreferrer"
-                className="px-4 py-2 bg-white/5 border border-white/6 hover:bg-white/10 hover:border-white/12 text-white font-heading font-medium text-xs rounded-lg flex items-center gap-2 transition-all shadow-md"
+                className="px-3 py-1.5 bg-white/5 border border-white/6 hover:bg-white/10 hover:border-white/12 text-white font-heading font-medium text-xs rounded-lg flex items-center gap-2 transition-all shadow-md"
                 title="View Source"
               >
                 <i className="fa-brands fa-github text-text-secondary"></i> <span>GitHub</span>
               </a>
             )}
+            
+            {/* Save as Template Button */}
+            <button
+              onClick={() => {
+                const name = window.prompt('Enter Template Name:', `${project.name} Template`);
+                if (name) {
+                  onSaveAsTemplate(project, name, project.description);
+                }
+              }}
+              className="px-3 py-1.5 bg-purple-500/15 border border-purple-500/30 hover:bg-purple-500/30 text-[#d8b4fe] text-xs font-semibold rounded-lg transition-all flex items-center gap-1.5 cursor-pointer"
+              title="Save Project as Reusable Template"
+            >
+              <i className="fa-solid fa-box-archive"></i> <span>Save Template</span>
+            </button>
+
             <button
               onClick={() => onEditProject(project)}
               className="p-2 bg-white/5 border border-white/6 hover:bg-white/10 hover:border-white/12 text-white rounded-lg transition-all cursor-pointer"
@@ -378,12 +514,21 @@ export default function ProjectDetail({
 
       {/* Control Ribbon */}
       <div className="glass border border-white/6 p-4 flex justify-between items-center gap-5 flex-wrap">
-        <div>
+        <div className="flex items-center gap-3">
           <button
             onClick={onAddTask}
             className="px-4 py-2 bg-accent hover:bg-accent-hover text-white font-heading font-medium text-sm rounded-lg flex items-center gap-2 transition-all shadow-md cursor-pointer"
           >
             <i className="fa-solid fa-plus"></i> <span>New Task</span>
+          </button>
+
+          {/* Select All Toggle */}
+          <button
+            onClick={selectedTaskIds.length === project.tasks.length ? handleClearSelection : handleSelectAll}
+            className="px-3 py-1.5 bg-white/5 hover:bg-white/10 border border-white/10 text-xs font-semibold text-text-secondary hover:text-white rounded-lg transition-all cursor-pointer"
+          >
+            <i className="fa-solid fa-list-check mr-1.5"></i>
+            {selectedTaskIds.length === project.tasks.length ? 'Deselect All' : 'Select All'}
           </button>
         </div>
 
@@ -438,12 +583,92 @@ export default function ProjectDetail({
         </div>
       </div>
 
+      {/* Floating Bulk Action Bar */}
+      {selectedTaskIds.length > 0 && (
+        <div className="sticky top-2 z-30 bg-[#0f1017]/95 border border-accent/40 backdrop-blur-xl p-3.5 rounded-xl shadow-2xl flex items-center justify-between gap-4 flex-wrap animate-fade-in">
+          <div className="flex items-center gap-2 text-xs font-bold text-white">
+            <span className="w-5 h-5 rounded-full bg-accent flex items-center justify-center text-[10px]">
+              {selectedTaskIds.length}
+            </span>
+            <span>tasks selected</span>
+          </div>
+
+          <div className="flex items-center gap-3 flex-wrap">
+            {/* Move Status */}
+            <div className="flex items-center gap-1">
+              <span className="text-[11px] text-text-muted font-medium">Status:</span>
+              <select
+                onChange={(e) => {
+                  if (e.target.value) {
+                    onBulkTaskUpdate(project.id, selectedTaskIds, 'status', e.target.value);
+                    e.target.value = '';
+                  }
+                }}
+                className="bg-white/5 border border-white/10 text-white text-xs px-2.5 py-1 rounded-lg focus:outline-none focus:border-accent cursor-pointer"
+              >
+                <option value="">Move status...</option>
+                <option value="todo">To Do</option>
+                <option value="in-progress">In Progress</option>
+                <option value="done">Done</option>
+              </select>
+            </div>
+
+            {/* Set Priority */}
+            <div className="flex items-center gap-1">
+              <span className="text-[11px] text-text-muted font-medium">Priority:</span>
+              <select
+                onChange={(e) => {
+                  if (e.target.value) {
+                    onBulkTaskUpdate(project.id, selectedTaskIds, 'priority', e.target.value);
+                    e.target.value = '';
+                  }
+                }}
+                className="bg-white/5 border border-white/10 text-white text-xs px-2.5 py-1 rounded-lg focus:outline-none focus:border-accent cursor-pointer"
+              >
+                <option value="">Set priority...</option>
+                <option value="high">High</option>
+                <option value="medium">Medium</option>
+                <option value="low">Low</option>
+              </select>
+            </div>
+
+            {/* Bulk Delete */}
+            <button
+              onClick={() => {
+                if (window.confirm(`Delete ${selectedTaskIds.length} selected tasks permanently?`)) {
+                  onBulkTaskUpdate(project.id, selectedTaskIds, 'delete', null);
+                  setSelectedTaskIds([]);
+                }
+              }}
+              className="px-3 py-1 bg-red-500/20 hover:bg-red-500/35 border border-red-500/35 text-red-300 text-xs font-semibold rounded-lg transition-all cursor-pointer flex items-center gap-1"
+            >
+              <i className="fa-solid fa-trash-can text-[10px]"></i> Delete
+            </button>
+
+            {/* Clear selection */}
+            <button
+              onClick={handleClearSelection}
+              className="px-2.5 py-1 bg-white/5 hover:bg-white/10 text-text-muted hover:text-white text-xs rounded-lg transition-all cursor-pointer ml-2"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Kanban Board View */}
       {viewMode === 'kanban' && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
           
           {/* TO DO Column */}
-          <div className="glass border border-white/6 p-5 flex flex-col gap-4 min-h-[400px]">
+          <div
+            onDragOver={(e) => handleDragOver(e, 'todo')}
+            onDragLeave={handleDragLeave}
+            onDrop={(e) => handleDrop(e, 'todo')}
+            className={`glass border p-5 flex flex-col gap-4 min-h-[400px] transition-all rounded-2xl ${
+              dragOverColumn === 'todo' ? 'border-accent bg-accent/10 border-dashed ring-2 ring-accent/40' : 'border-white/6'
+            }`}
+          >
             <div className="flex justify-between items-center mb-1 select-none">
               <div className="flex items-center gap-2">
                 <span className="dot dot-todo"></span>
@@ -455,7 +680,7 @@ export default function ProjectDetail({
               {todoTasks.length === 0 ? (
                 <div className="flex flex-col items-center justify-center p-8 text-center text-text-muted gap-2 border border-dashed border-white/4 rounded-xl min-h-[120px]">
                   <i className="fa-solid fa-inbox text-xl opacity-20"></i>
-                  <p className="text-[11px]">Column is empty</p>
+                  <p className="text-[11px]">Drop tasks here</p>
                 </div>
               ) : (
                 todoTasks.map(t => (
@@ -463,11 +688,14 @@ export default function ProjectDetail({
                     key={t.id}
                     task={t}
                     projectId={project.id}
+                    isSelected={selectedTaskIds.includes(t.id)}
+                    onToggleSelect={handleToggleSelect}
                     onEdit={onEditTask}
                     onDelete={onDeleteTask}
                     onTaskUpdate={onTaskUpdate}
                     onStartTimer={onStartTimer}
                     onStopTimer={onStopTimer}
+                    onOpenNotes={setNotesModalTask}
                     todayStr={todayStr}
                     escapeHTML={escapeHTML}
                   />
@@ -477,7 +705,14 @@ export default function ProjectDetail({
           </div>
 
           {/* IN PROGRESS Column */}
-          <div className="glass border border-white/6 p-5 flex flex-col gap-4 min-h-[400px]">
+          <div
+            onDragOver={(e) => handleDragOver(e, 'in-progress')}
+            onDragLeave={handleDragLeave}
+            onDrop={(e) => handleDrop(e, 'in-progress')}
+            className={`glass border p-5 flex flex-col gap-4 min-h-[400px] transition-all rounded-2xl ${
+              dragOverColumn === 'in-progress' ? 'border-accent bg-accent/10 border-dashed ring-2 ring-accent/40' : 'border-white/6'
+            }`}
+          >
             <div className="flex justify-between items-center mb-1 select-none">
               <div className="flex items-center gap-2">
                 <span className="dot dot-progress"></span>
@@ -489,7 +724,7 @@ export default function ProjectDetail({
               {progressTasks.length === 0 ? (
                 <div className="flex flex-col items-center justify-center p-8 text-center text-text-muted gap-2 border border-dashed border-white/4 rounded-xl min-h-[120px]">
                   <i className="fa-solid fa-inbox text-xl opacity-20"></i>
-                  <p className="text-[11px]">Column is empty</p>
+                  <p className="text-[11px]">Drop tasks here</p>
                 </div>
               ) : (
                 progressTasks.map(t => (
@@ -497,11 +732,14 @@ export default function ProjectDetail({
                     key={t.id}
                     task={t}
                     projectId={project.id}
+                    isSelected={selectedTaskIds.includes(t.id)}
+                    onToggleSelect={handleToggleSelect}
                     onEdit={onEditTask}
                     onDelete={onDeleteTask}
                     onTaskUpdate={onTaskUpdate}
                     onStartTimer={onStartTimer}
                     onStopTimer={onStopTimer}
+                    onOpenNotes={setNotesModalTask}
                     todayStr={todayStr}
                     escapeHTML={escapeHTML}
                   />
@@ -511,7 +749,14 @@ export default function ProjectDetail({
           </div>
 
           {/* DONE Column */}
-          <div className="glass border border-white/6 p-5 flex flex-col gap-4 min-h-[400px]">
+          <div
+            onDragOver={(e) => handleDragOver(e, 'done')}
+            onDragLeave={handleDragLeave}
+            onDrop={(e) => handleDrop(e, 'done')}
+            className={`glass border p-5 flex flex-col gap-4 min-h-[400px] transition-all rounded-2xl ${
+              dragOverColumn === 'done' ? 'border-accent bg-accent/10 border-dashed ring-2 ring-accent/40' : 'border-white/6'
+            }`}
+          >
             <div className="flex justify-between items-center mb-1 select-none">
               <div className="flex items-center gap-2">
                 <span className="dot dot-done"></span>
@@ -523,7 +768,7 @@ export default function ProjectDetail({
               {doneTasks.length === 0 ? (
                 <div className="flex flex-col items-center justify-center p-8 text-center text-text-muted gap-2 border border-dashed border-white/4 rounded-xl min-h-[120px]">
                   <i className="fa-solid fa-inbox text-xl opacity-20"></i>
-                  <p className="text-[11px]">Column is empty</p>
+                  <p className="text-[11px]">Drop tasks here</p>
                 </div>
               ) : (
                 doneTasks.map(t => (
@@ -531,11 +776,14 @@ export default function ProjectDetail({
                     key={t.id}
                     task={t}
                     projectId={project.id}
+                    isSelected={selectedTaskIds.includes(t.id)}
+                    onToggleSelect={handleToggleSelect}
                     onEdit={onEditTask}
                     onDelete={onDeleteTask}
                     onTaskUpdate={onTaskUpdate}
                     onStartTimer={onStartTimer}
                     onStopTimer={onStopTimer}
+                    onOpenNotes={setNotesModalTask}
                     todayStr={todayStr}
                     escapeHTML={escapeHTML}
                   />
@@ -553,13 +801,21 @@ export default function ProjectDetail({
           <div className="min-w-[750px] flex flex-col text-xs">
             {/* Headers */}
             <div className="flex bg-white/3 border-b border-white/6 font-bold text-text-secondary h-10 items-center">
+              <div className="w-10 px-3 flex justify-center">
+                <input
+                  type="checkbox"
+                  checked={selectedTaskIds.length > 0 && selectedTaskIds.length === project.tasks.length}
+                  onChange={selectedTaskIds.length === project.tasks.length ? handleClearSelection : handleSelectAll}
+                  className="w-3.5 h-3.5 rounded border-white/10 accent-accent cursor-pointer"
+                />
+              </div>
               <div className="w-44 px-4 truncate">Task</div>
               <div className="flex-1 px-4 truncate">Description</div>
               <div className="w-36 px-4 text-center">Schedule Date</div>
               <div className="w-36 px-4 text-center">Deadline</div>
               <div className="w-24 px-4 text-center">Priority</div>
               <div className="w-32 px-4 text-center">Status</div>
-              <div className="w-20 px-4 text-center">Actions</div>
+              <div className="w-24 px-4 text-center">Actions</div>
             </div>
 
             {/* List Body */}
@@ -572,11 +828,22 @@ export default function ProjectDetail({
               ) : (
                 filteredTasks.map(t => {
                   const isOverdue = t.deadline && t.deadline < todayStr && t.status !== 'done';
+                  const isSelected = selectedTaskIds.includes(t.id);
                   return (
                     <div
                       key={t.id}
-                      className="flex border-b border-white/[0.04] h-12 items-center hover:bg-white/[0.01] transition-colors"
+                      className={`flex border-b border-white/[0.04] h-12 items-center hover:bg-white/[0.02] transition-colors ${
+                        isSelected ? 'bg-accent/10 border-accent/20' : ''
+                      }`}
                     >
+                      <div className="w-10 px-3 flex justify-center">
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={() => handleToggleSelect(t.id)}
+                          className="w-3.5 h-3.5 rounded border-white/10 accent-accent cursor-pointer"
+                        />
+                      </div>
                       <div className="w-44 px-4 truncate font-semibold text-white flex items-center gap-1.5" title={t.title}>
                         <span className="truncate">{t.title}</span>
                         {t.urgent && <i className="fa-solid fa-fire text-red-400 text-[10px]" title="Urgent"></i>}
@@ -607,25 +874,90 @@ export default function ProjectDetail({
                           <option value="done">Done</option>
                         </select>
                       </div>
-                      <div className="w-20 px-4 flex items-center justify-center gap-2 text-text-muted">
+                      <div className="w-24 px-4 flex items-center justify-center gap-2 text-text-muted">
+                        <button
+                          onClick={() => setNotesModalTask(t)}
+                          className="hover:text-amber-400 cursor-pointer"
+                          title="Task Notes"
+                        >
+                          <i className="fa-solid fa-comment-dots text-xs"></i>
+                        </button>
                         <button
                           onClick={() => onEditTask(t)}
                           className="hover:text-white cursor-pointer"
                           title="Edit Task"
                         >
-                          <i className="fa-solid fa-pen"></i>
+                          <i className="fa-solid fa-pen text-xs"></i>
                         </button>
                         <button
                           onClick={() => onDeleteTask(t.id)}
                           className="hover:text-red-400 cursor-pointer"
                           title="Delete Task"
                         >
-                          <i className="fa-solid fa-trash-can"></i>
+                          <i className="fa-solid fa-trash-can text-xs"></i>
                         </button>
                       </div>
                     </div>
                   );
                 })
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Task Notes / Activity Log Modal */}
+      {notesModalTask && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-fade-in">
+          <div className="bg-[#0f1016] border border-white/12 rounded-2xl w-full max-w-lg shadow-2xl p-6 flex flex-col gap-4">
+            <div className="flex justify-between items-start">
+              <div>
+                <h3 className="text-lg font-bold text-white font-heading flex items-center gap-2">
+                  <i className="fa-solid fa-note-sticky text-amber-400"></i> Task Notes & Activity Log
+                </h3>
+                <p className="text-xs text-text-muted truncate max-w-xs">{notesModalTask.title}</p>
+              </div>
+              <button
+                onClick={() => setNotesModalTask(null)}
+                className="text-text-muted hover:text-white p-1 rounded hover:bg-white/10 cursor-pointer"
+              >
+                <i className="fa-solid fa-xmark text-lg"></i>
+              </button>
+            </div>
+
+            {/* Note Input */}
+            <div className="flex gap-2">
+              <input
+                type="text"
+                placeholder="Add note e.g. Blocked by design review — 2026-08-12..."
+                value={newNoteText}
+                onChange={(e) => setNewNoteText(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleAddNote()}
+                className="flex-1 bg-white/5 border border-white/10 text-white text-xs px-3 py-2 rounded-xl focus:outline-none focus:border-accent"
+              />
+              <button
+                onClick={handleAddNote}
+                className="px-4 py-2 bg-accent hover:bg-accent-hover text-white font-semibold text-xs rounded-xl cursor-pointer transition-all flex items-center gap-1"
+              >
+                <i className="fa-solid fa-plus text-[10px]"></i> Add Note
+              </button>
+            </div>
+
+            {/* Notes List Audit Trail */}
+            <div className="flex flex-col gap-2 max-h-60 overflow-y-auto pr-1 mt-2">
+              {(!notesModalTask.notes || notesModalTask.notes.length === 0) ? (
+                <div className="p-6 text-center text-xs text-text-muted border border-dashed border-white/6 rounded-xl">
+                  No notes recorded yet. Add notes to build an audit trail!
+                </div>
+              ) : (
+                notesModalTask.notes.map(note => (
+                  <div key={note.id} className="bg-white/[0.03] border border-white/6 p-3 rounded-xl flex flex-col gap-1">
+                    <p className="text-xs text-white leading-relaxed break-words">{note.text}</p>
+                    <span className="text-[10px] text-text-muted flex items-center gap-1">
+                      <i className="fa-solid fa-clock text-[9px]"></i> {formatDateTimeUS(note.createdAt)}
+                    </span>
+                  </div>
+                ))
               )}
             </div>
           </div>

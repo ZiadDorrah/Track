@@ -61,14 +61,16 @@ function getUserDataPath(userId) {
 function getUserData(userId) {
   const filePath = getUserDataPath(userId);
   if (!fs.existsSync(filePath)) {
-    const defaultData = { userId, projects: [] };
+    const defaultData = { userId, projects: [], templates: [] };
     fs.writeFileSync(filePath, JSON.stringify(defaultData, null, 2));
     return defaultData;
   }
   try {
-    return JSON.parse(fs.readFileSync(filePath, 'utf8'));
+    const data = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+    if (!data.templates) data.templates = [];
+    return data;
   } catch (err) {
-    return { userId, projects: [] };
+    return { userId, projects: [], templates: [] };
   }
 }
 
@@ -313,6 +315,7 @@ app.post('/api/projects/:projectId/tasks', authenticate, (req, res) => {
     urgent: req.body.urgent !== undefined ? req.body.urgent : false,
     important: req.body.important !== undefined ? req.body.important : false,
     customFields: req.body.customFields || {},
+    notes: req.body.notes || [],
     completedAt: req.body.completedAt || (status === 'done' ? new Date().toISOString() : null)
   };
 
@@ -364,6 +367,7 @@ app.put('/api/projects/:projectId/tasks/:taskId', authenticate, (req, res) => {
   if (req.body.urgent !== undefined) task.urgent = req.body.urgent;
   if (req.body.important !== undefined) task.important = req.body.important;
   if (req.body.customFields !== undefined) task.customFields = req.body.customFields;
+  if (req.body.notes !== undefined) task.notes = req.body.notes;
   if (req.body.completedAt !== undefined) task.completedAt = req.body.completedAt;
 
   saveUserData(req.user.id, userData);
@@ -389,6 +393,173 @@ app.delete('/api/projects/:projectId/tasks/:taskId', authenticate, (req, res) =>
 
   saveUserData(req.user.id, userData);
   res.json({ message: 'Task deleted successfully.' });
+});
+
+// Bulk Task Operations (Status change, Priority change, Bulk Delete)
+app.post('/api/projects/:projectId/tasks/bulk', authenticate, (req, res) => {
+  const { projectId } = req.params;
+  const { taskIds, action, value } = req.body;
+
+  if (!Array.isArray(taskIds) || taskIds.length === 0 || !action) {
+    return res.status(400).json({ error: 'Invalid bulk request parameters.' });
+  }
+
+  const userData = getUserData(req.user.id);
+  const project = userData.projects.find(p => p.id === projectId);
+  if (!project) {
+    return res.status(404).json({ error: 'Project not found.' });
+  }
+
+  if (action === 'delete') {
+    project.tasks = project.tasks.filter(t => !taskIds.includes(t.id));
+  } else if (action === 'status') {
+    project.tasks.forEach(t => {
+      if (taskIds.includes(t.id)) {
+        if (value === 'done' && t.status !== 'done') {
+          t.completedAt = new Date().toISOString();
+        } else if (value !== 'done' && t.status === 'done') {
+          t.completedAt = null;
+        }
+        t.status = value;
+      }
+    });
+  } else if (action === 'priority') {
+    project.tasks.forEach(t => {
+      if (taskIds.includes(t.id)) {
+        t.priority = value;
+      }
+    });
+  }
+
+  saveUserData(req.user.id, userData);
+  res.json(project.tasks);
+});
+
+// ================= PROJECT TEMPLATES ENDPOINTS =================
+
+// Get all project templates
+app.get('/api/templates', authenticate, (req, res) => {
+  const userData = getUserData(req.user.id);
+  res.json(userData.templates || []);
+});
+
+// Save a project as a reusable template
+app.post('/api/templates', authenticate, (req, res) => {
+  const { name, description, category, tasks } = req.body;
+  if (!name) {
+    return res.status(400).json({ error: 'Template name is required.' });
+  }
+
+  const userData = getUserData(req.user.id);
+  if (!userData.templates) userData.templates = [];
+
+  const newTemplate = {
+    id: uuidv4(),
+    name,
+    description: description || '',
+    category: category || 'General',
+    tasks: (tasks || []).map(t => ({
+      title: t.title,
+      description: t.description || '',
+      priority: t.priority || 'medium',
+      urgent: t.urgent || false,
+      important: t.important || false,
+      subtasks: (t.subtasks || []).map(s => ({ text: s.text || s.title || '', completed: false }))
+    })),
+    createdAt: new Date().toISOString()
+  };
+
+  userData.templates.push(newTemplate);
+  saveUserData(req.user.id, userData);
+
+  res.status(201).json(newTemplate);
+});
+
+// Delete template
+app.delete('/api/templates/:id', authenticate, (req, res) => {
+  const templateId = req.params.id;
+  const userData = getUserData(req.user.id);
+  if (!userData.templates) userData.templates = [];
+  
+  userData.templates = userData.templates.filter(t => t.id !== templateId);
+  saveUserData(req.user.id, userData);
+  res.json({ message: 'Template deleted.' });
+});
+
+// Spin up new project from template
+app.post('/api/projects/from-template/:templateId', authenticate, (req, res) => {
+  const { templateId } = req.params;
+  const { projectName, projectDescription } = req.body;
+
+  const userData = getUserData(req.user.id);
+  const template = (userData.templates || []).find(t => t.id === templateId);
+
+  // Predefined default templates support
+  let templateData = template;
+  if (!templateData) {
+    if (templateId === 'onboarding') {
+      templateData = {
+        name: 'New Client Onboarding',
+        description: 'Standard client onboarding workflow with tasks',
+        tasks: [
+          { title: 'Kickoff Call & Requirements', description: 'Schedule introductory meeting and gather project requirements', priority: 'high', urgent: true, important: true, status: 'todo' },
+          { title: 'Setup Shared Drive & Repository', description: 'Provision client folder, git repository, and access permissions', priority: 'medium', urgent: false, important: true, status: 'todo' },
+          { title: 'Send Welcome Packet & Invoice', description: 'Deliver welcome documents and initial deposit invoice', priority: 'medium', urgent: true, important: false, status: 'todo' }
+        ]
+      };
+    } else if (templateId === 'sprint') {
+      templateData = {
+        name: 'Sprint Week Plan',
+        description: 'Agile sprint iteration template with planning & review tasks',
+        tasks: [
+          { title: 'Sprint Grooming & Estimation', description: 'Review backlog items and assign story points', priority: 'high', urgent: true, important: true, status: 'todo' },
+          { title: 'Feature Development Sprint', description: 'Execute core feature tickets', priority: 'high', urgent: false, important: true, status: 'todo' },
+          { title: 'Testing & QA Review', description: 'Run unit & integration test suites', priority: 'medium', urgent: false, important: true, status: 'todo' },
+          { title: 'Sprint Retrospective & Demo', description: 'Review sprint velocity and document retro findings', priority: 'low', urgent: false, important: false, status: 'todo' }
+        ]
+      };
+    }
+  }
+
+  if (!templateData) {
+    return res.status(404).json({ error: 'Template not found.' });
+  }
+
+  const newProject = {
+    id: uuidv4(),
+    name: projectName || templateData.name,
+    description: projectDescription || templateData.description || '',
+    url: '',
+    github: '',
+    createdAt: new Date().toISOString(),
+    tasks: (templateData.tasks || []).map(t => ({
+      id: uuidv4(),
+      title: t.title,
+      description: t.description || '',
+      status: 'todo',
+      priority: t.priority || 'medium',
+      deadline: '',
+      scheduleDate: '',
+      reminder: false,
+      subtasks: t.subtasks || [],
+      timeLogged: 0,
+      timeSessions: [],
+      timerStarted: null,
+      recurring: 'none',
+      pomodoroSessions: [],
+      createdAt: new Date().toISOString(),
+      urgent: t.urgent || false,
+      important: t.important || false,
+      customFields: {},
+      notes: [],
+      completedAt: null
+    }))
+  };
+
+  userData.projects.push(newProject);
+  saveUserData(req.user.id, userData);
+
+  res.status(201).json(newProject);
 });
 
 // ================= SETTINGS ENDPOINTS =================

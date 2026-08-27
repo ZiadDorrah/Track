@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { playAmbientSound, stopAmbientSound } from '../../utils/audio.js';
 
 // Premium synthesized audio chime
 const playFocusChime = (isBreak) => {
@@ -39,8 +40,21 @@ export default function Pomodoro({ onTaskUpdate, showToast }) {
   const [activeTask, setActiveTask] = useState(null);
   const [activeProjectId, setActiveProjectId] = useState(null);
   const [isMinimized, setIsMinimized] = useState(true);
+  const [ambientSound, setAmbientSound] = useState('none'); // none, lofi, rain, white, cafe
 
   const timerRef = useRef(null);
+
+  // Handle ambient sound playback when timer active / ambient setting changes
+  useEffect(() => {
+    if (isActive && mode === 'work' && ambientSound !== 'none') {
+      playAmbientSound(ambientSound, 0.25);
+    } else {
+      stopAmbientSound();
+    }
+    return () => {
+      stopAmbientSound();
+    };
+  }, [isActive, mode, ambientSound]);
 
   // Listen to quick-focus trigger from Task Cards
   useEffect(() => {
@@ -76,6 +90,7 @@ export default function Pomodoro({ onTaskUpdate, showToast }) {
 
   const handleSessionComplete = async () => {
     setIsActive(false);
+    stopAmbientSound();
     
     if (mode === 'work') {
       playFocusChime(false);
@@ -96,6 +111,7 @@ export default function Pomodoro({ onTaskUpdate, showToast }) {
         const updatedPomodoro = [...(activeTask.pomodoroSessions || []), {
           id: newSession.id,
           timestamp: newSession.endTime,
+          completedAt: newSession.endTime,
           duration: durationSec
         }];
 
@@ -133,11 +149,13 @@ export default function Pomodoro({ onTaskUpdate, showToast }) {
 
   const handleReset = () => {
     setIsActive(false);
+    stopAmbientSound();
     setTimeLeft(mode === 'work' ? 25 * 60 : 5 * 60);
   };
 
   const handleSkip = () => {
     setIsActive(false);
+    stopAmbientSound();
     if (mode === 'work') {
       setMode('break');
       setTimeLeft(5 * 60);
@@ -180,7 +198,7 @@ export default function Pomodoro({ onTaskUpdate, showToast }) {
 
   // Expanded panel
   return (
-    <div className="fixed bottom-6 right-6 z-45 w-80 glass border border-white/10 p-5 shadow-[0_12px_40px_rgba(0,0,0,0.6)] flex flex-col gap-4 animate-fade-in text-white select-none">
+    <div className="fixed bottom-6 right-6 z-45 w-80 glass border border-white/10 p-5 shadow-[0_12px_40px_rgba(0,0,0,0.6)] flex flex-col gap-3.5 animate-fade-in text-white select-none">
       {/* Header */}
       <div className="flex justify-between items-center border-b border-white/6 pb-2.5">
         <div className="flex items-center gap-2">
@@ -201,13 +219,31 @@ export default function Pomodoro({ onTaskUpdate, showToast }) {
       </div>
 
       {/* Timer View */}
-      <div className="flex flex-col items-center gap-1 my-2">
+      <div className="flex flex-col items-center gap-1 my-1">
         <h1 className="text-5xl font-extrabold tracking-tight font-heading tabular-nums glow-text">
           {formatTime(timeLeft)}
         </h1>
-        <span className="text-[11px] text-text-muted font-medium mt-1">
+        <span className="text-[11px] text-text-muted font-medium mt-0.5">
           {isActive ? 'Running focus session...' : 'Timer paused'}
         </span>
+      </div>
+
+      {/* Ambient Sound Player Selector */}
+      <div className="flex items-center justify-between bg-white/[0.02] border border-white/6 p-2 rounded-xl text-xs">
+        <span className="text-[10px] font-bold text-text-muted flex items-center gap-1">
+          <i className="fa-solid fa-music text-accent text-[9px]"></i> Ambient:
+        </span>
+        <select
+          value={ambientSound}
+          onChange={(e) => setAmbientSound(e.target.value)}
+          className="bg-black/30 text-white text-[11px] px-2 py-1 rounded-lg border border-white/10 focus:outline-none focus:border-accent cursor-pointer"
+        >
+          <option value="none">Off</option>
+          <option value="lofi">🎹 Lo-Fi Beats</option>
+          <option value="rain">🌧️ Soft Rain</option>
+          <option value="white">📻 White Noise</option>
+          <option value="cafe">☕ Cozy Cafe</option>
+        </select>
       </div>
 
       {/* Task Linkage */}
