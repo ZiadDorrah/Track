@@ -22,6 +22,14 @@ function formatDateTimeUS(dateStr) {
   return `${mm}/${dd}/${yyyy}`;
 }
 
+function formatHoursMinutes(seconds) {
+  if (!seconds || seconds <= 0) return '0h 0m';
+  const hrs = Math.floor(seconds / 3600);
+  const mins = Math.floor((seconds % 3600) / 60);
+  if (hrs === 0) return `${mins}m`;
+  return `${hrs}h ${mins}m`;
+}
+
 // Single Task Card inside Kanban Column
 function TaskCard({
   task,
@@ -358,10 +366,23 @@ export default function ProjectDetail({
   const { user } = useCurrentUser();
   const [searchQuery, setSearchQuery] = useState('');
   const [priorityFilter, setPriorityFilter] = useState('all');
-  const [viewMode, setViewMode] = useState('kanban'); // kanban, list
+  const [viewMode, setViewMode] = useState('kanban'); // kanban, list, time-rollup
   const [isMembersModalOpen, setIsMembersModalOpen] = useState(false);
+  const [timeRollup, setTimeRollup] = useState(null);
+  const [timeRollupLoading, setTimeRollupLoading] = useState(false);
 
   const isOwner = Boolean(user && project && (user.id === project.ownerId || user.id === project.owner_id));
+
+  useEffect(() => {
+    if (project && viewMode === 'time-rollup') {
+      setTimeRollupLoading(true);
+      fetch(`/api/projects/${project.id}/time-rollup`)
+        .then(res => res.json())
+        .then(data => setTimeRollup(data))
+        .catch(err => console.error('Failed to fetch project time rollup:', err))
+        .finally(() => setTimeRollupLoading(false));
+    }
+  }, [project?.id, viewMode]);
   
   // Drag and Drop state
   const [dragOverColumn, setDragOverColumn] = useState(null);
@@ -616,6 +637,15 @@ export default function ProjectDetail({
               title="Detailed List View"
             >
               <i className="fa-solid fa-list-ul"></i>
+            </button>
+            <button
+              onClick={() => setViewMode('time-rollup')}
+              className={`p-1.5 rounded-md text-xs cursor-pointer transition-all ${
+                viewMode === 'time-rollup' ? 'bg-accent text-white shadow-md' : 'text-text-muted hover:text-white'
+              }`}
+              title="Time Analytics & Rollups View"
+            >
+              <i className="fa-solid fa-clock"></i>
             </button>
           </div>
         </div>
@@ -940,6 +970,119 @@ export default function ProjectDetail({
                 })
               )}
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Time Analytics & Rollup Panel */}
+      {viewMode === 'time-rollup' && (
+        <div className="flex flex-col gap-6 animate-fade-in">
+          {/* Total Project Time Logged Banner */}
+          <div className="glass border border-white/8 p-6 flex items-center justify-between gap-6 flex-wrap">
+            <div className="flex items-center gap-4">
+              <div className="w-14 h-14 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 flex items-center justify-center text-2xl shadow-[0_0_20px_rgba(16,185,129,0.15)]">
+                <i className="fa-solid fa-stopwatch"></i>
+              </div>
+              <div>
+                <p className="text-xs font-semibold text-text-muted uppercase tracking-wider">Total Logged Focus Time</p>
+                <h2 className="text-3xl font-black font-heading text-white mt-0.5">
+                  {formatHoursMinutes(timeRollup?.totalProjectTimeSeconds || 0)}
+                </h2>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-6">
+              <div className="text-right">
+                <span className="text-xs text-text-muted block">Tasks Tracked</span>
+                <span className="text-lg font-bold text-white">{timeRollup?.taskRollup?.length || 0}</span>
+              </div>
+              <div className="text-right">
+                <span className="text-xs text-text-muted block">Session Logs</span>
+                <span className="text-lg font-bold text-white">{timeRollup?.sessions?.length || 0}</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Per-Member Time Distribution */}
+          <div className="glass border border-white/6 p-6">
+            <h3 className="text-lg font-bold font-heading text-white mb-4 flex items-center gap-2">
+              <i className="fa-solid fa-users text-accent"></i> Time Logged by Team Member
+            </h3>
+
+            {timeRollup?.memberRollup && timeRollup.memberRollup.length > 0 ? (
+              <div className="flex flex-col gap-4">
+                {timeRollup.memberRollup.map((m) => {
+                  const totalSecs = timeRollup.totalProjectTimeSeconds || 1;
+                  const pct = Math.round((m.totalTimeSeconds / totalSecs) * 100);
+
+                  return (
+                    <div key={m.userId} className="flex flex-col gap-1.5 p-3 rounded-xl bg-white/[0.02] border border-white/5">
+                      <div className="flex justify-between items-center text-xs">
+                        <div className="flex items-center gap-2">
+                          <div className="w-6 h-6 rounded-full bg-accent/20 text-accent font-bold text-[10px] flex items-center justify-center">
+                            {m.displayName.charAt(0).toUpperCase()}
+                          </div>
+                          <span className="font-semibold text-white">{m.displayName}</span>
+                          <span className="text-[10px] text-text-muted">({m.jobTitle})</span>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <span className="text-text-secondary">{m.taskCount} task(s)</span>
+                          <span className="font-bold text-emerald-400">{formatHoursMinutes(m.totalTimeSeconds)} ({pct}%)</span>
+                        </div>
+                      </div>
+                      <div className="w-full bg-white/10 rounded-full h-2 overflow-hidden">
+                        <div
+                          className="bg-emerald-400 h-full rounded-full transition-all duration-500 shadow-[0_0_8px_rgba(52,211,153,0.4)]"
+                          style={{ width: `${pct}%` }}
+                        />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <p className="text-xs text-text-muted italic">No member time logged yet for this project.</p>
+            )}
+          </div>
+
+          {/* Top Tasks Time Leaderboard */}
+          <div className="glass border border-white/6 p-6">
+            <h3 className="text-lg font-bold font-heading text-white mb-4 flex items-center gap-2">
+              <i className="fa-solid fa-list-check text-accent"></i> Task Time Leaderboard
+            </h3>
+
+            {timeRollup?.taskRollup && timeRollup.taskRollup.length > 0 ? (
+              <div className="border border-white/6 rounded-xl overflow-hidden bg-black/15">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-white/5 border-b border-white/6 text-text-muted text-[10px] uppercase tracking-wider font-bold">
+                    <tr>
+                      <th className="px-4 py-3">Task Title</th>
+                      <th className="px-4 py-3">Assignee</th>
+                      <th className="px-4 py-3 text-center">Status</th>
+                      <th className="px-4 py-3 text-right">Logged Duration</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-white/4">
+                    {timeRollup.taskRollup.map((t) => (
+                      <tr key={t.taskId} className="hover:bg-white/[0.02] transition-colors">
+                        <td className="px-4 py-3 font-semibold text-white">{t.taskTitle}</td>
+                        <td className="px-4 py-3 text-text-secondary">{t.assigneeName}</td>
+                        <td className="px-4 py-3 text-center">
+                          <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-white/5 text-text-secondary">
+                            {t.status}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-right font-mono font-bold text-emerald-400">
+                          {formatHoursMinutes(t.totalTimeSeconds)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <p className="text-xs text-text-muted italic">No tasks have logged focus time yet.</p>
+            )}
           </div>
         </div>
       )}

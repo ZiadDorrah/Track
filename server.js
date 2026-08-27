@@ -872,6 +872,109 @@ app.delete('/api/projects/:id/members/:userId', authenticate, async (req, res) =
   }
 });
 
+// Get project time-tracking aggregate rollup
+app.get('/api/projects/:id/time-rollup', authenticate, async (req, res) => {
+  try {
+    const projectId = req.params.id;
+    const me = req.user.id;
+
+    // Check project accessibility
+    const project = await db.get(`
+      SELECT p.*
+      FROM projects p
+      LEFT JOIN project_members pm ON pm.project_id = p.id
+      WHERE p.id = ? AND (p.owner_id = ? OR pm.user_id = ?)
+    `, [projectId, me, me]);
+
+    if (!project) {
+      return res.status(404).json({ error: 'Project not found or unauthorized.' });
+    }
+
+    // 1. Total Project Time Logged
+    const totalTimeRow = await db.get(`
+      SELECT SUM(time_logged) as total_seconds
+      FROM tasks
+      WHERE project_id = ?
+    `, [projectId]);
+
+    const totalProjectTimeSeconds = totalTimeRow ? (totalTimeRow.total_seconds || 0) : 0;
+
+    // 2. Per-Member Rollup
+    const memberRollupRows = await db.all(`
+      SELECT u.id as user_id, u.username, u.display_name, u.job_title,
+             SUM(t.time_logged) as total_seconds,
+             COUNT(t.id) as task_count
+      FROM tasks t
+      JOIN users u ON t.assignee_id = u.id
+      WHERE t.project_id = ?
+      GROUP BY u.id
+      ORDER BY total_seconds DESC
+    `, [projectId]);
+
+    const memberRollup = memberRollupRows.map(r => ({
+      userId: r.user_id,
+      username: r.username,
+      displayName: r.display_name || r.username,
+      jobTitle: r.job_title || 'Team Member',
+      totalTimeSeconds: r.total_seconds || 0,
+      taskCount: r.task_count || 0
+    }));
+
+    // 3. Per-Task Leaderboard (Tasks with logged time)
+    const taskRollupRows = await db.all(`
+      SELECT t.id, t.title, t.status, t.time_logged, u.display_name as assignee_name, u.username as assignee_username
+      FROM tasks t
+      LEFT JOIN users u ON t.assignee_id = u.id
+      WHERE t.project_id = ? AND t.time_logged > 0
+      ORDER BY t.time_logged DESC
+      LIMIT 20
+    `, [projectId]);
+
+    const taskRollup = taskRollupRows.map(t => ({
+      taskId: t.id,
+      taskTitle: t.title,
+      status: t.status,
+      assigneeName: t.assignee_name || t.assignee_username || 'Unassigned',
+      totalTimeSeconds: t.time_logged || 0
+    }));
+
+    // 4. Time Sessions History
+    const sessionRows = await db.all(`
+      SELECT ts.id, ts.task_id, t.title as task_title, u.display_name as user_name, u.username,
+             ts.start_time, ts.end_time, ts.duration as duration_seconds
+      FROM time_sessions ts
+      JOIN tasks t ON ts.task_id = t.id
+      LEFT JOIN users u ON ts.user_id = u.id
+      WHERE t.project_id = ?
+      ORDER BY ts.start_time DESC
+      LIMIT 50
+    `, [projectId]);
+
+    const sessions = sessionRows.map(s => ({
+      id: s.id,
+      taskId: s.task_id,
+      taskTitle: s.task_title,
+      userName: s.user_name || s.username || 'User',
+      startTime: s.start_time,
+      endTime: s.end_time,
+      durationSeconds: s.duration_seconds || 0,
+      notes: s.notes || ''
+    }));
+
+    res.json({
+      projectId,
+      projectName: project.name,
+      totalProjectTimeSeconds,
+      memberRollup,
+      taskRollup,
+      sessions
+    });
+  } catch (err) {
+    console.error('Fetch time-rollup error:', err);
+    res.status(500).json({ error: 'Failed to generate time-tracking rollup.' });
+  }
+});
+
 // ================= TASK ENDPOINTS =================
 
 // Create task inside a project
