@@ -6,7 +6,7 @@ const { v4: uuidv4 } = require('uuid');
 const db = require('./server/db');
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 3005;
 
 // Middleware
 app.use(express.json());
@@ -154,9 +154,26 @@ async function wouldCreateCycle(managerId, employeeId) {
   return false;
 }
 
+// Assignee Validation Helper (Self, Project Member, or Direct Report)
+async function isValidAssignee(assigneeId, assignerId, projectId) {
+  if (!assigneeId) return true;
+  if (assigneeId === assignerId) return true;
+
+  const targetUser = await db.get('SELECT id FROM users WHERE id = ? AND is_active = 1', [assigneeId]);
+  if (!targetUser) return false;
+
+  const isMember = await db.get('SELECT 1 FROM project_members WHERE project_id = ? AND user_id = ?', [projectId, assigneeId]);
+  if (isMember) return true;
+
+  const isReport = await db.get('SELECT 1 FROM manager_employee WHERE manager_id = ? AND employee_id = ?', [assignerId, assigneeId]);
+  if (isReport) return true;
+
+  return false;
+}
+
 // ================= AUTHENTICATION ENDPOINTS =================
 
-// Signup
+// Signup (Restricted to system bootstrap / initial admin account creation only)
 app.post('/api/auth/signup', async (req, res) => {
   try {
     await db.initPromise;
@@ -165,20 +182,23 @@ app.post('/api/auth/signup', async (req, res) => {
       return res.status(400).json({ error: 'Username and password are required.' });
     }
 
+    // Check if system has already been initialized with an admin
+    const userCount = await db.get('SELECT COUNT(*) as count FROM users');
+    if (userCount && userCount.count > 0) {
+      return res.status(403).json({ error: 'Self-signup is disabled. New user accounts must be provisioned by an administrator.' });
+    }
+
     const exists = await db.get('SELECT id FROM users WHERE LOWER(username) = LOWER(?)', [username]);
     if (exists) {
       return res.status(400).json({ error: 'Username is already taken.' });
     }
 
-    // First user created in system becomes Admin automatically
-    const userCount = await db.get('SELECT COUNT(*) as count FROM users');
-    const isAdmin = (userCount && userCount.count === 0) ? 1 : 0;
-
+    const isAdmin = 1; // First user is Admin
     const userId = uuidv4();
     const { salt, hash } = hashPassword(password);
     const userEmail = email || `${username.toLowerCase()}@company.local`;
     const userDisplayName = displayName || (username.charAt(0).toUpperCase() + username.slice(1));
-    const userJobTitle = jobTitle || (isAdmin ? 'Administrator' : 'Employee');
+    const userJobTitle = jobTitle || 'Administrator';
     const createdAt = new Date().toISOString();
 
     await db.run(`
@@ -186,10 +206,10 @@ app.post('/api/auth/signup', async (req, res) => {
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
     `, [userId, username, userEmail, userDisplayName, userJobTitle, isAdmin, salt, hash, createdAt]);
 
-    res.status(201).json({ message: 'User registered successfully!' });
+    res.status(201).json({ message: 'System administrator registered successfully!' });
   } catch (err) {
     console.error('Signup error:', err);
-    res.status(500).json({ error: 'Failed to register user.' });
+    res.status(500).json({ error: 'Failed to register administrator.' });
   }
 });
 
@@ -516,14 +536,14 @@ app.put('/api/projects/:id', authenticate, async (req, res) => {
     }
 
     const me = req.user.id;
-    const project = await db.get(`
-      SELECT p.* FROM projects p
-      LEFT JOIN project_members pm ON pm.project_id = p.id
-      WHERE p.id = ? AND (p.owner_id = ? OR pm.user_id = ?)
-    `, [projectId, me, me]);
+    const project = await db.get('SELECT * FROM projects WHERE id = ?', [projectId]);
 
     if (!project) {
-      return res.status(404).json({ error: 'Project not found or unauthorized.' });
+      return res.status(404).json({ error: 'Project not found.' });
+    }
+
+    if (project.owner_id !== me) {
+      return res.status(403).json({ error: 'Forbidden. Only the project owner can edit project details.' });
     }
 
     await db.run(`
@@ -600,6 +620,11 @@ app.post('/api/projects/:projectId/tasks', authenticate, async (req, res) => {
     const completedAt = req.body.completedAt || (taskStatus === 'done' ? createdAt : null);
     const assignedUser = assigneeId || me;
 
+    const validAssignee = await isValidAssignee(assignedUser, me, projectId);
+    if (!validAssignee) {
+      return res.status(400).json({ error: 'Invalid assigneeId. Assignee must be an active user who is a project member or your direct report.' });
+    }
+
     await db.run(`
       INSERT INTO tasks (
         id, project_id, title, description, status, priority, deadline, schedule_date,
@@ -649,9 +674,27 @@ app.put('/api/projects/:projectId/tasks/:taskId', authenticate, async (req, res)
       return res.status(400).json({ error: 'Task title is required.' });
     }
 
+    const me = req.user.id;
+    const project = await db.get(`
+      SELECT p.* FROM projects p
+      LEFT JOIN project_members pm ON pm.project_id = p.id
+      WHERE p.id = ? AND (p.owner_id = ? OR pm.user_id = ?)
+    `, [projectId, me, me]);
+    if (!project) {
+      return res.status(404).json({ error: 'Project not found or unauthorized.' });
+    }
+
     const existingTask = await db.get('SELECT * FROM tasks WHERE id = ? AND project_id = ?', [taskId, projectId]);
     if (!existingTask) {
       return res.status(404).json({ error: 'Task not found.' });
+    }
+
+    const targetAssignee = assigneeId !== undefined ? assigneeId : existingTask.assignee_id;
+    if (assigneeId !== undefined && assigneeId !== existingTask.assignee_id) {
+      const validAssignee = await isValidAssignee(targetAssignee, me, projectId);
+      if (!validAssignee) {
+        return res.status(400).json({ error: 'Invalid assigneeId. Assignee must be an active user who is a project member or your direct report.' });
+      }
     }
 
     let completedAt = existingTask.completed_at;
@@ -731,6 +774,16 @@ app.put('/api/projects/:projectId/tasks/:taskId', authenticate, async (req, res)
 app.delete('/api/projects/:projectId/tasks/:taskId', authenticate, async (req, res) => {
   try {
     const { projectId, taskId } = req.params;
+    const me = req.user.id;
+    const project = await db.get(`
+      SELECT p.* FROM projects p
+      LEFT JOIN project_members pm ON pm.project_id = p.id
+      WHERE p.id = ? AND (p.owner_id = ? OR pm.user_id = ?)
+    `, [projectId, me, me]);
+    if (!project) {
+      return res.status(404).json({ error: 'Project not found or unauthorized.' });
+    }
+
     const task = await db.get('SELECT id FROM tasks WHERE id = ? AND project_id = ?', [taskId, projectId]);
     if (!task) {
       return res.status(404).json({ error: 'Task not found.' });
@@ -752,6 +805,16 @@ app.post('/api/projects/:projectId/tasks/bulk', authenticate, async (req, res) =
 
     if (!Array.isArray(taskIds) || taskIds.length === 0 || !action) {
       return res.status(400).json({ error: 'Invalid bulk request parameters.' });
+    }
+
+    const me = req.user.id;
+    const project = await db.get(`
+      SELECT p.* FROM projects p
+      LEFT JOIN project_members pm ON pm.project_id = p.id
+      WHERE p.id = ? AND (p.owner_id = ? OR pm.user_id = ?)
+    `, [projectId, me, me]);
+    if (!project) {
+      return res.status(404).json({ error: 'Project not found or unauthorized.' });
     }
 
     if (action === 'delete') {

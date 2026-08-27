@@ -13,7 +13,7 @@ npm run server
 # Or run both client and server concurrently:
 npm run dev
 ```
-The backend server will start on `http://localhost:3000` connected to the embedded SQLite database (`data/track.db`).
+The backend server will start on `http://localhost:3005` connected to the embedded SQLite database (`data/track.db`).
 
 ### 2. Import the Postman Collection
 1. Open **Postman**.
@@ -26,7 +26,7 @@ The backend server will start on `http://localhost:3000` connected to the embedd
 ## Postman Collection Environment & Variables
 
 The collection includes a pre-configured variable:
-- `baseUrl`: `http://localhost:3000`
+- `baseUrl`: `http://localhost:3005`
 
 Postman automatically captures the HTTP-only `session_token` cookie returned upon successful login (`/api/auth/login`). All subsequent requests will automatically transmit this cookie to authenticate calls.
 
