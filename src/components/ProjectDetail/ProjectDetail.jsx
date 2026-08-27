@@ -945,7 +945,7 @@ export default function ProjectDetail({
 
             {/* Notes List Audit Trail */}
             <div className="flex flex-col gap-2 max-h-60 overflow-y-auto pr-1 mt-2">
-              {(!notesModalTask.notes || notesModalTask.notes.length === 0) ? (
+              {(!Array.isArray(notesModalTask.notes) || notesModalTask.notes.length === 0) ? (
                 <div className="p-6 text-center text-xs text-text-muted border border-dashed border-white/6 rounded-xl">
                   No notes recorded yet. Add notes to build an audit trail!
                 </div>

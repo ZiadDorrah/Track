@@ -51,30 +51,35 @@ export default function Dashboard({
 
   // Calculate Pomodoro Focus Streak
   const pomodoroDates = new Set();
-  projects.forEach(p => {
-    (p.tasks || []).forEach(t => {
-      (t.pomodoroSessions || []).forEach(s => {
-        if (s.completedAt) {
-          pomodoroDates.add(s.completedAt.split('T')[0]);
+  (projects || []).forEach(p => {
+    (p?.tasks || []).forEach(t => {
+      (t?.pomodoroSessions || []).forEach(s => {
+        const dateVal = typeof s === 'string' ? s : (s?.completedAt || s?.timestamp || s?.date || '');
+        if (dateVal && typeof dateVal === 'string') {
+          pomodoroDates.add(dateVal.split('T')[0]);
         }
       });
     });
   });
 
   let focusStreak = 0;
-  const curr = new Date();
-  let checkDateStr = curr.toISOString().split('T')[0];
+  if (pomodoroDates.size > 0) {
+    const curr = new Date();
+    let checkDateStr = curr.toISOString().split('T')[0];
 
-  if (!pomodoroDates.has(checkDateStr)) {
-    // Check if yesterday had one to keep active streak counting
-    curr.setDate(curr.getDate() - 1);
-    checkDateStr = curr.toISOString().split('T')[0];
-  }
+    if (!pomodoroDates.has(checkDateStr)) {
+      // Check if yesterday had one to keep active streak counting
+      curr.setDate(curr.getDate() - 1);
+      checkDateStr = curr.toISOString().split('T')[0];
+    }
 
-  while (pomodoroDates.has(checkDateStr)) {
-    focusStreak++;
-    curr.setDate(curr.getDate() - 1);
-    checkDateStr = curr.toISOString().split('T')[0];
+    let iterations = 0;
+    while (pomodoroDates.has(checkDateStr) && iterations < 365) {
+      focusStreak++;
+      iterations++;
+      curr.setDate(curr.getDate() - 1);
+      checkDateStr = curr.toISOString().split('T')[0];
+    }
   }
 
   // Calculate Weekly Time Log
@@ -446,7 +451,7 @@ export default function Dashboard({
 
             {/* Template Selection Grid */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-56 overflow-y-auto pr-1">
-              {[...defaultPresets, ...templates].map(tpl => {
+              {[...defaultPresets, ...(Array.isArray(templates) ? templates : [])].map(tpl => {
                 const isSel = selectedTemplate?.id === tpl.id;
                 return (
                   <div
