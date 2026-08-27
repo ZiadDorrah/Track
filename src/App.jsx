@@ -57,7 +57,6 @@ export default function App() {
   const [selectedGanttProjects, setSelectedGanttProjects] = useState([]);
 
   // System Configurations
-  const [startupEnabled, setStartupEnabled] = useState(false);
   const [theme, setTheme] = useState(localStorage.getItem('track-theme') || 'violet');
   const [themeMode, setThemeMode] = useState(localStorage.getItem('track-theme-mode') || 'dark');
   const [completionSound, setCompletionSound] = useState(localStorage.getItem('track-completion-sound') !== 'false');
@@ -142,7 +141,6 @@ export default function App() {
   useEffect(() => {
     if (user) {
       fetchProjects();
-      loadStartupSetting();
     }
   }, [user]);
 
@@ -199,38 +197,7 @@ export default function App() {
     }
   };
 
-  const loadStartupSetting = async () => {
-    try {
-      const response = await fetch('/api/settings/startup');
-      if (response.ok) {
-        const data = await response.json();
-        setStartupEnabled(data.enabled);
-      }
-    } catch (err) {
-      console.error('Failed to load startup boot configuration', err);
-    }
-  };
 
-  const handleStartupToggle = async (enabled) => {
-    try {
-      const response = await fetch('/api/settings/startup', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ enabled }),
-      });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || 'Failed to update boot setting.');
-      setStartupEnabled(data.enabled);
-      showToast(
-        data.enabled
-          ? 'Automatic Windows Startup enabled successfully! The app will boot with Windows.'
-          : 'Automatic Windows Startup disabled.',
-        'success'
-      );
-    } catch (err) {
-      showToast(err.message, 'error');
-    }
-  };
 
   const handleLogout = async () => {
     try {
@@ -973,8 +940,6 @@ export default function App() {
 
         {activeView === 'settings' && (
           <Settings
-            startupEnabled={startupEnabled}
-            onStartupToggle={handleStartupToggle}
             theme={theme}
             onThemeChange={setTheme}
             themeMode={themeMode}

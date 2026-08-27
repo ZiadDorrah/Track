@@ -16,6 +16,8 @@ export default function Settings({
     { id: 'teal', label: 'Teal', color: 'background: hsl(175, 89%, 50%);', bgClass: 'bg-[#14b8a6]' },
     { id: 'blue', label: 'Blue', color: 'background: hsl(210, 89%, 60%);', bgClass: 'bg-[#3b82f6]' },
     { id: 'rose', label: 'Rose', color: 'background: hsl(340, 89%, 60%);', bgClass: 'bg-[#f43f5e]' },
+    { id: 'emerald', label: 'Emerald', color: 'background: hsl(155, 89%, 45%);', bgClass: 'bg-[#10b981]' },
+    { id: 'amber', label: 'Amber', color: 'background: hsl(38, 92%, 50%);', bgClass: 'bg-[#f59e0b]' },
   ];
 
   return (
@@ -90,30 +92,7 @@ export default function Settings({
           </div>
         </div>
 
-        <hr className="border-t border-white/6" />
 
-        {/* Windows Startup Configuration */}
-        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-          <div className="flex-1">
-            <h3 className="text-base font-semibold font-heading text-white flex items-center gap-2">
-              <i className="fa-solid fa-power-off text-accent"></i> Windows Startup Integration
-            </h3>
-            <p className="text-xs text-text-secondary mt-1 max-w-xl">
-              Enable this to automatically boot the server and open the browser interface whenever your Windows computer turns on.
-            </p>
-          </div>
-          <div className="flex-shrink-0">
-            <label className="relative inline-flex items-center cursor-pointer select-none">
-              <input
-                type="checkbox"
-                checked={startupEnabled}
-                onChange={(e) => onStartupToggle(e.target.checked)}
-                className="sr-only peer"
-              />
-              <div className="w-11 h-6 bg-white/10 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-accent"></div>
-            </label>
-          </div>
-        </div>
 
         <hr className="border-t border-white/6" />
 

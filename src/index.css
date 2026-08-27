@@ -83,6 +83,18 @@ html[data-theme="rose"] {
     --accent-l: 60%;
 }
 
+html[data-theme="emerald"] {
+    --accent-h: 155;
+    --accent-s: 89%;
+    --accent-l: 45%;
+}
+
+html[data-theme="amber"] {
+    --accent-h: 38;
+    --accent-s: 92%;
+    --accent-l: 50%;
+}
+
 /* Light Mode Overrides */
 html[data-mode="light"] {
     --bg-darker: #f1f5f9;
