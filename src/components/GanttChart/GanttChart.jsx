@@ -38,7 +38,21 @@ function formatDateTimeUS(dateStr) {
   return `${mm}/${dd}/${yyyy}`;
 }
 
-export default function GanttChart({ projects, selectedGanttProjects, onSelectedGanttProjectsChange, onTaskEdit }) {
+export default function GanttChart({
+  projects = [],
+  selectedGanttProjects,
+  selectedProjects,
+  onSelectedGanttProjectsChange,
+  onSelectedProjectsChange,
+  onTaskEdit
+}) {
+  const safeProjects = Array.isArray(projects) ? projects : [];
+  const selectedList = Array.isArray(selectedGanttProjects)
+    ? selectedGanttProjects
+    : (Array.isArray(selectedProjects) ? selectedProjects : safeProjects.map(p => p.id));
+
+  const notifySelectionChange = onSelectedGanttProjectsChange || onSelectedProjectsChange || (() => {});
+
   const [timelineMode, setTimelineMode] = useState('days'); // days, hours
   const todayStr = new Date().toISOString().split('T')[0];
   const [selectedDayStr, setSelectedDayStr] = useState(todayStr);
@@ -59,33 +73,33 @@ export default function GanttChart({ projects, selectedGanttProjects, onSelected
 
   // Sync / Toggle selector dropdown items
   const handleToggleProject = (id) => {
-    if (selectedGanttProjects.includes(id)) {
-      onSelectedGanttProjectsChange(selectedGanttProjects.filter(pId => pId !== id));
+    if (selectedList.includes(id)) {
+      notifySelectionChange(selectedList.filter(pId => pId !== id));
     } else {
-      onSelectedGanttProjectsChange([...selectedGanttProjects, id]);
+      notifySelectionChange([...selectedList, id]);
     }
   };
 
   const handleSelectAll = () => {
-    onSelectedGanttProjectsChange(projects.map(p => p.id));
+    notifySelectionChange(safeProjects.map(p => p.id));
   };
 
   const handleClearAll = () => {
-    onSelectedGanttProjectsChange([]);
+    notifySelectionChange([]);
   };
 
   // Selector Label text
   let selectorText = 'None Selected';
-  if (projects.length === 0) {
+  if (safeProjects.length === 0) {
     selectorText = 'No Projects';
-  } else if (selectedGanttProjects.length === projects.length && projects.length > 0) {
+  } else if (selectedList.length === safeProjects.length && safeProjects.length > 0) {
     selectorText = 'All Projects';
-  } else if (selectedGanttProjects.length > 0) {
-    selectorText = `${selectedGanttProjects.length} Selected`;
+  } else if (selectedList.length > 0) {
+    selectorText = `${selectedList.length} Selected`;
   }
 
   // Filter projects list for rendering
-  const activeProjects = projects.filter(p => selectedGanttProjects.includes(p.id));
+  const activeProjects = safeProjects.filter(p => selectedList.includes(p.id));
 
   // Determine Gantt Date bounds
   const getTimelineBounds = () => {

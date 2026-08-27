@@ -423,8 +423,8 @@ export default function Dashboard({
         <div className="glass border border-white/6 p-6 flex flex-col min-h-[450px]">
           <GanttChart
             projects={projects}
-            selectedProjects={selectedGanttProjects}
-            onSelectedProjectsChange={onSelectedGanttProjectsChange}
+            selectedGanttProjects={selectedGanttProjects}
+            onSelectedGanttProjectsChange={onSelectedGanttProjectsChange}
           />
         </div>
 
