@@ -847,23 +847,23 @@ export default function App() {
             )}
           </button>
 
-          <button
-            onClick={() => navigate('/reports')}
-            className={`w-full flex items-center justify-between px-4 py-2.5 rounded-lg text-sm font-heading font-medium transition-all text-left cursor-pointer ${
-              location.pathname === '/reports'
-                ? 'bg-accent text-white shadow-[0_4px_15px_var(--accent-glow)]'
-                : 'text-text-secondary hover:text-white hover:bg-white/4'
-            }`}
-          >
-            <div className="flex items-center gap-3">
-              <i className="fa-solid fa-chart-pie text-xs"></i> <span>Manager Reports</span>
-            </div>
-            {isManager && (
+          {isManager && (
+            <button
+              onClick={() => navigate('/reports')}
+              className={`w-full flex items-center justify-between px-4 py-2.5 rounded-lg text-sm font-heading font-medium transition-all text-left cursor-pointer ${
+                location.pathname === '/reports'
+                  ? 'bg-accent text-white shadow-[0_4px_15px_var(--accent-glow)]'
+                  : 'text-text-secondary hover:text-white hover:bg-white/4'
+              }`}
+            >
+              <div className="flex items-center gap-3">
+                <i className="fa-solid fa-chart-pie text-xs"></i> <span>Manager Reports</span>
+              </div>
               <span className="text-[9px] bg-emerald-500/30 text-emerald-300 font-extrabold px-1.5 py-0.5 rounded-full border border-emerald-500/40">
                 Rollup
               </span>
-            )}
-          </button>
+            </button>
+          )}
 
           <button
             onClick={() => navigate('/priority-matrix')}

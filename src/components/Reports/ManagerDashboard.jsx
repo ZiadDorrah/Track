@@ -84,7 +84,6 @@ export default function ManagerDashboard({ showToast }) {
         {/* Team Tasks & Completion Rate */}
         <div className="glass border border-white/8 p-5 flex items-center gap-4">
           <div className="w-12 h-12 rounded-xl bg-purple-500/10 border border-purple-500/20 text-purple-400 flex items-center justify-center text-xl">
-            <i className="fa-solid fa-[#a855f7]"></i>
             <i className="fa-solid fa-list-check"></i>
           </div>
           <div>

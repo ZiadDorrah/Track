@@ -556,11 +556,20 @@ app.get('/api/reports/manager', authenticate, async (req, res) => {
     const reportStatsList = [];
 
     for (const r of reports) {
+      // Only count tasks the calling manager can actually see - owns the
+      // project, is a member of it, or created the task themself - not
+      // every task this report has ever been assigned company-wide.
       const userTasks = await db.all(`
-        SELECT id, status, deadline, time_logged
-        FROM tasks
-        WHERE assignee_id = ?
-      `, [r.id]);
+        SELECT t.id, t.status, t.deadline, t.time_logged
+        FROM tasks t
+        JOIN projects p ON t.project_id = p.id
+        WHERE t.assignee_id = ?
+          AND (
+            p.owner_id = ?
+            OR t.created_by_id = ?
+            OR EXISTS (SELECT 1 FROM project_members pm WHERE pm.project_id = p.id AND pm.user_id = ?)
+          )
+      `, [r.id, me, me, me]);
 
       const totalTasks = userTasks.length;
       const completedTasks = userTasks.filter(t => t.status === 'done').length;
@@ -793,6 +802,11 @@ app.post('/api/projects/:id/members', authenticate, async (req, res) => {
     const targetUser = await db.get('SELECT id, username, display_name, job_title, email FROM users WHERE id = ? AND is_active = 1', [userId]);
     if (!targetUser) {
       return res.status(404).json({ error: 'Target user not found or inactive.' });
+    }
+
+    const isDirectReport = await db.get('SELECT 1 FROM manager_employee WHERE manager_id = ? AND employee_id = ?', [me, userId]);
+    if (!isDirectReport) {
+      return res.status(403).json({ error: 'Forbidden. You can only add your own direct reports as project members.' });
     }
 
     const memberId = uuidv4();

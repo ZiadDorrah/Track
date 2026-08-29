@@ -198,6 +198,18 @@ async function initSchema() {
       created_at TEXT NOT NULL,
       FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
     );
+
+    CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
+    CREATE INDEX IF NOT EXISTS idx_mgr_emp_manager ON manager_employee(manager_id);
+    CREATE INDEX IF NOT EXISTS idx_mgr_emp_employee ON manager_employee(employee_id);
+    CREATE INDEX IF NOT EXISTS idx_project_members_project ON project_members(project_id);
+    CREATE INDEX IF NOT EXISTS idx_project_members_user ON project_members(user_id);
+    CREATE INDEX IF NOT EXISTS idx_tasks_project ON tasks(project_id);
+    CREATE INDEX IF NOT EXISTS idx_tasks_assignee ON tasks(assignee_id);
+    CREATE INDEX IF NOT EXISTS idx_tasks_creator ON tasks(created_by_id);
+    CREATE INDEX IF NOT EXISTS idx_time_sessions_task ON time_sessions(task_id);
+    CREATE INDEX IF NOT EXISTS idx_time_sessions_user ON time_sessions(user_id);
+    CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(user_id, is_read, created_at);
   `);
 }
 
