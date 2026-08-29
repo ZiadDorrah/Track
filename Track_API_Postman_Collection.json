@@ -2,7 +2,7 @@
 	"info": {
 		"_postman_id": "8c44b931-e129-4d64-9640-bd4465494d45",
 		"name": "Track. Enterprise API Collection",
-		"description": "API collection for the Track Multi-User Enterprise Task Tracker, backed by SQLite.\n\n**Auth model**: cookie-based sessions (`session_token`, httpOnly). Postman's built-in cookie jar handles this automatically once you run **Login** — no manual header wiring needed. There is no Bearer/API-key auth in this API.\n\n**Roles**: every user is either a regular user or an admin (`isAdmin`). \"Manager\" and \"employee\" are not fixed roles — they're derived from rows in the `manager_employee` table, so any user can be a manager of some people and a report of others. Endpoints under **Admin (User & Hierarchy)** require `isAdmin = true` on the calling session (403 otherwise); all other endpoints just require an authenticated session (401 otherwise).\n\n**Self-signup is locked down**: `POST /api/auth/signup` only succeeds while the system has zero users (it creates the first account as admin). After that it always returns 403 — new accounts must be created via **Provision User (Admin)**.\n\n**Suggested run order** (this collection is wired for it via test scripts that auto-populate collection variables like `{{projectId}}`, `{{taskId}}`, `{{managerUserId}}`, `{{employeeUserId}}`, `{{templateId}}` — no manual copy-pasting of IDs required):\n1. Authentication → Sign Up (only if the DB is empty) → Login\n2. Admin → provision a manager + an employee, link them\n3. Projects → create a project (as the logged-in admin/manager)\n4. Tasks → create/update/bulk-update a task, assigning it to the employee\n5. Templates → create a template, spin up a project from it\n\nWithin each folder, non-destructive requests are ordered first; **Delete**/**Unassign** requests are last and destructive — run them only once you're done exploring that folder.",
+		"description": "API collection for the Track Multi-User Enterprise Task Tracker, backed by SQLite.\n\n**Auth model**: cookie-based sessions (`session_token`, httpOnly). Postman's built-in cookie jar handles this automatically once you run **Login** — no manual header wiring needed. There is no Bearer/API-key auth in this API.\n\n**Roles**: every user is either a regular user or an admin (`isAdmin`). \"Manager\" and \"employee\" are not fixed roles — they're derived from rows in the `manager_employee` table, so any user can be a manager of some people and a report of others. Endpoints under **Admin (User & Hierarchy)** require `isAdmin = true` on the calling session (403 otherwise); endpoints under **Team & Hierarchy** just need an authenticated session (no admin flag), since they only ever return data scoped to the caller; all other endpoints likewise just require an authenticated session (401 otherwise).\n\n**Two known scoping gaps, documented on their requests rather than hidden**: `GET /api/reports/manager` (Team & Hierarchy) aggregates a report's task/time totals company-wide instead of scoping to what the calling manager can actually see; `POST /api/projects/:id/members` (Projects) lets an owner add any active company user, not just their own direct reports. Neither crashes anything — see each request's description for the specifics.\n\n**Self-signup is locked down**: `POST /api/auth/signup` only succeeds while the system has zero users (it creates the first account as admin). After that it always returns 403 — new accounts must be created via **Provision User (Admin)**.\n\n**Suggested run order** (this collection is wired for it via test scripts that auto-populate collection variables like `{{projectId}}`, `{{taskId}}`, `{{managerUserId}}`, `{{employeeUserId}}`, `{{templateId}}` — no manual copy-pasting of IDs required):\n1. Authentication → Sign Up (only if the DB is empty) → Login\n2. Admin → provision a manager + an employee, link them\n3. Team & Hierarchy → confirm the link (Get My Direct Reports / Get My Managers), try the rollups\n4. Projects → create a project (as the logged-in admin/manager)\n5. Tasks → create/update/bulk-update a task, assigning it to the employee\n6. Templates → create a template, spin up a project from it\n\nWithin each folder, non-destructive requests are ordered first; **Delete**/**Unassign** requests are last and destructive — run them only once you're done exploring that folder.",
 		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
 	},
 	"item": [
@@ -687,6 +687,121 @@
 			"description": "Admin-only endpoints (403 for any non-admin session) for provisioning accounts and shaping the manager/employee hierarchy. Run **Provision Manager Account** and **Provision Employee Account** before **Assign Manager** — both earlier requests auto-populate `{{managerUserId}}`/`{{employeeUserId}}` via their test scripts."
 		},
 		{
+			"name": "Team & Hierarchy",
+			"item": [
+				{
+					"name": "Get My Direct Reports (Team)",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/users/me/team",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "users", "me", "team"]
+						},
+						"description": "Returns the people who report **directly** to the logged-in user, derived live from `manager_employee` (there's no stored \"is a manager\" flag — you're a manager purely because this list is non-empty). Used by the frontend to compute `isManager`.\n\n**Responses**\n- `200` — array of `{ id, username, email, displayName, jobTitle, isAdmin }` (empty array if you manage no one)"
+					},
+					"response": []
+				},
+				{
+					"name": "Get My Managers",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/users/me/managers",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "users", "me", "managers"]
+						},
+						"description": "Returns everyone who directly manages the logged-in user. Can be more than one — an employee having multiple managers is a supported case, not an edge case.\n\n**Responses**\n- `200` — array of `{ id, username, email, displayName, jobTitle, isAdmin }` (empty array if you have no manager)"
+					},
+					"response": []
+				},
+				{
+					"name": "Get All Reports (Recursive Skip-Level)",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/users/me/team/all",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "users", "me", "team", "all"]
+						},
+						"description": "Like **Get My Direct Reports**, but walks the full hierarchy with a `WITH RECURSIVE` query — direct reports, their reports, and so on. Backs the **Team Directory** frontend view. De-duplicated even if someone is reachable through more than one management chain.\n\n**Responses**\n- `200` — array of `{ id, username, email, displayName, jobTitle, isAdmin }`"
+					},
+					"response": []
+				},
+				{
+					"name": "Get Eligible Assignees for Task",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/users/me/assignees?projectId={{projectId}}",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "users", "me", "assignees"],
+							"query": [
+								{ "key": "projectId", "value": "{{projectId}}", "description": "Optional. Include to also pull in this project's members as candidates." }
+							]
+						},
+						"description": "Populates the assignee dropdown shown in the task create/edit modal: always includes yourself and your direct reports; if `projectId` is given, also includes that project's members (de-duplicated). This is deliberately the same rule set `isValidAssignee` enforces server-side on task create/update, so the dropdown never offers a choice the backend would reject.\n\nOmit `projectId` (or drop the query string entirely) to get just yourself + direct reports, useful outside a project context.\n\n**Responses**\n- `200` — array of `{ id, username, email, displayName, jobTitle, isAdmin }`\n- `404` — a `projectId` was given but you don't own it and aren't a member (same check task creation uses)"
+					},
+					"response": [
+						{
+							"name": "404 Not Found — no access to that project",
+							"originalRequest": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{baseUrl}}/api/users/me/assignees?projectId=00000000-0000-0000-0000-000000000000",
+									"host": ["{{baseUrl}}"],
+									"path": ["api", "users", "me", "assignees"],
+									"query": [{ "key": "projectId", "value": "00000000-0000-0000-0000-000000000000" }]
+								}
+							},
+							"status": "Not Found",
+							"code": 404,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{ "key": "Content-Type", "value": "application/json; charset=utf-8" }
+							],
+							"cookie": [],
+							"body": "{\n    \"error\": \"Project not found or unauthorized.\"\n}"
+						}
+					]
+				},
+				{
+					"name": "Get Manager Performance Rollup",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/reports/manager",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "reports", "manager"]
+						},
+						"description": "Skip-level performance rollup across every direct and indirect report (via `getRecursiveReports`) — a summary block plus one stats entry per report (task counts by status, completion rate, overdue count, total time logged, and that report's own list of managers).\n\n**⚠️ Known scoping gap (documented, not fixed as of this API version)**: per-report stats are computed with `SELECT ... FROM tasks WHERE assignee_id = ?` and are **not** filtered by project visibility — they include every task ever assigned to that person company-wide, even ones created by a completely unrelated manager in a project you have no access to. Verified: a manager whose only relationship to an employee is via `manager_employee` will see that employee's *combined* task/time totals from every manager who has ever assigned them anything, not just their own. Contrast with **Get Project Time Rollup** below, which *is* correctly scoped to one project's visibility. Treat the numbers here as \"this person's total workload across the company,\" not \"work I personally assigned or can see.\"\n\n**Responses**\n- `200` — `{ summary: { totalReports, teamTotalTasks, teamCompletedTasks, teamCompletionRate, teamOverdueTasks, teamTotalTimeLogged }, reports: [{ user, managers: [...], stats: { totalTasks, completedTasks, inProgressTasks, todoTasks, overdueTasks, completionRate, totalTimeLogged } }] }` (empty `reports` array if you manage no one)"
+					},
+					"response": []
+				},
+				{
+					"name": "Get Company User Directory",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/users/all",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "users", "all"]
+						},
+						"description": "Lists every active user in the company (id, username, displayName, jobTitle, email) — used to populate the \"add teammate to project\" candidate picker. **Any authenticated user can call this**, not just admins or managers; there's no scoping to the caller's own reports or existing projects. Reasonable for an internal tool's people-picker, but worth confirming that company-wide visibility (including everyone's email) is the intended scope.\n\n**Responses**\n- `200` — array of `{ id, username, displayName, jobTitle, email }`"
+					},
+					"response": []
+				}
+			],
+			"description": "Read-only endpoints exposing the manager/employee hierarchy and cross-user directory data — everything here just requires an authenticated session (no admin flag needed, unlike the **Admin** folder). Run after **Assign Manager** so the recursive/rollup endpoints have real hierarchy data to show."
+		},
+		{
 			"name": "Projects",
 			"item": [
 				{
@@ -849,6 +964,122 @@
 					]
 				},
 				{
+					"name": "Add Project Member (Owner)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"userId\": \"{{employeeUserId}}\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/projects/:id/members",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "projects", ":id", "members"],
+							"variable": [
+								{ "key": "id", "value": "{{projectId}}" }
+							]
+						},
+						"description": "Adds an active user as a member of the project — from then on they get full board visibility (every task, not just ones assigned to them) per the collaborative-project design. **Owner only.**\n\n**⚠️ No hierarchy check**: unlike task-assignment (`isValidAssignee`, which restricts to self/member/direct-report), this endpoint lets an owner add **any** active user in the company, not just their own direct reports — despite \"manager adds their own report\" being the original design intent. Confirmed: an owner with zero management relationship to a user can still add them. Worth knowing if you're relying on org-hierarchy as an access boundary.\n\n**Responses**\n- `201` — `{ message, members: [{ id, username, displayName, jobTitle, email, joinedAt }] }` (full updated member list)\n- `400` — missing `userId`\n- `403` — caller is not the project owner\n- `404` — project doesn't exist, or `userId` doesn't match an active user"
+					},
+					"response": [
+						{
+							"name": "403 Forbidden — not the owner",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{ "key": "Content-Type", "value": "application/json" }
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n    \"userId\": \"{{employeeUserId}}\"\n}"
+								},
+								"url": {
+									"raw": "{{baseUrl}}/api/projects/:id/members",
+									"host": ["{{baseUrl}}"],
+									"path": ["api", "projects", ":id", "members"],
+									"variable": [{ "key": "id", "value": "{{projectId}}" }]
+								}
+							},
+							"status": "Forbidden",
+							"code": 403,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{ "key": "Content-Type", "value": "application/json; charset=utf-8" }
+							],
+							"cookie": [],
+							"body": "{\n    \"error\": \"Forbidden. Only the project owner can add project members.\"\n}"
+						}
+					]
+				},
+				{
+					"name": "Remove Project Member (Owner)",
+					"request": {
+						"method": "DELETE",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/projects/:id/members/:userId",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "projects", ":id", "members", ":userId"],
+							"variable": [
+								{ "key": "id", "value": "{{projectId}}" },
+								{ "key": "userId", "value": "{{employeeUserId}}" }
+							]
+						},
+						"description": "Revokes a member's access to the project (they immediately lose the full-board visibility membership granted). **Owner only**, and the owner is explicitly protected from removing themselves — there's no way to leave your own project via this endpoint (delete the project instead if that's the goal).\n\n**Responses**\n- `200` — `{ message, members: [...] }` (full updated member list, always returned even if the given `userId` wasn't a member)\n- `400` — attempted to remove the project owner\n- `403` — caller is not the project owner\n- `404` — project doesn't exist"
+					},
+					"response": [
+						{
+							"name": "400 Bad Request — cannot remove the owner",
+							"originalRequest": {
+								"method": "DELETE",
+								"header": [],
+								"url": {
+									"raw": "{{baseUrl}}/api/projects/:id/members/:userId",
+									"host": ["{{baseUrl}}"],
+									"path": ["api", "projects", ":id", "members", ":userId"],
+									"variable": [
+										{ "key": "id", "value": "{{projectId}}" },
+										{ "key": "userId", "value": "OWNER_USER_ID" }
+									]
+								}
+							},
+							"status": "Bad Request",
+							"code": 400,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{ "key": "Content-Type", "value": "application/json; charset=utf-8" }
+							],
+							"cookie": [],
+							"body": "{\n    \"error\": \"Project owner cannot be removed from project members.\"\n}"
+						}
+					]
+				},
+				{
+					"name": "Get Project Time Rollup",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/projects/:id/time-rollup",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "projects", ":id", "time-rollup"],
+							"variable": [
+								{ "key": "id", "value": "{{projectId}}" }
+							]
+						},
+						"description": "Aggregates logged time for this **one project only** — correctly scoped by `WHERE project_id = ?` throughout (contrast with **Get Manager Performance Rollup** in the Team & Hierarchy folder, which is not project-scoped). Requires project ownership or membership.\n\nReturns four views of the same underlying `time_sessions`/`tasks` data:\n- `totalProjectTimeSeconds` — sum of `time_logged` across every task in the project\n- `memberRollup` — total time + task count per assignee, sorted highest first\n- `taskRollup` — top 20 tasks by time logged (only tasks with `time_logged > 0`)\n- `sessions` — the 50 most recent individual timer sessions, newest first\n\n**Responses**\n- `200` — `{ projectId, projectName, totalProjectTimeSeconds, memberRollup: [...], taskRollup: [...], sessions: [...] }`\n- `404` — project doesn't exist, or caller isn't the owner/a member"
+					},
+					"response": []
+				},
+				{
 					"name": "Delete Project Workspace",
 					"request": {
 						"method": "DELETE",
@@ -870,12 +1101,12 @@
 								}
 							]
 						},
-						"description": "Deletes the project and cascades to every task, task assignment, time session, and membership row underneath it (SQLite `ON DELETE CASCADE`). **Owner only** — an outsider or non-owner member gets `404`, and this action cannot be undone. **Run this last** — Tasks and Templates requests below reuse `{{projectId}}`.\n\n**Responses**\n- `200` — `{ \"message\": \"Project deleted successfully.\" }`\n- `404` — project doesn't exist, or caller isn't the owner"
+						"description": "Deletes the project and cascades to every task, task assignment, time session, and membership row underneath it (both via SQLite `ON DELETE CASCADE` and explicit cleanup queries as a belt-and-suspenders measure). **Owner only** — an outsider or non-owner member gets `404`, and this action cannot be undone. **Run this last** — Tasks, Templates, and the member/time-rollup requests above all reuse `{{projectId}}`.\n\n**Responses**\n- `200` — `{ \"message\": \"Project deleted successfully.\" }`\n- `404` — project doesn't exist, or caller isn't the owner"
 					},
 					"response": []
 				}
 			],
-			"description": "Project CRUD, scoped to whatever the logged-in user owns or is a member of. Editing/deleting metadata is owner-only; adding tasks is open to any project member (see Tasks folder)."
+			"description": "Project CRUD, scoped to whatever the logged-in user owns or is a member of, plus owner-only membership management and a project-scoped time-tracking rollup. Editing/deleting metadata and managing members is owner-only; adding tasks is open to any project member (see Tasks folder)."
 		},
 		{
 			"name": "Tasks",
