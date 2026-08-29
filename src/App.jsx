@@ -6,6 +6,7 @@ import ProjectDetail from './components/ProjectDetail/ProjectDetail.jsx';
 import Settings from './components/Settings/Settings.jsx';
 import Team from './components/Team/Team.jsx';
 import ManagerDashboard from './components/Reports/ManagerDashboard.jsx';
+import ProjectTimeline from './components/Timeline/ProjectTimeline.jsx';
 import { ProjectModal, TaskModal } from './components/Modals/Modals.jsx';
 import Pomodoro from './components/Pomodoro/Pomodoro.jsx';
 import GlobalSearch from './components/GlobalSearch/GlobalSearch.jsx';
@@ -777,7 +778,7 @@ export default function App() {
       </div>
 
       {/* Sidebar Navigation */}
-      <aside className="h-screen sticky top-0 p-5 glass border-r border-white/6 flex flex-col gap-6 select-none bg-bg-dark/40 z-30">
+      <aside className="md:h-screen md:sticky md:top-0 p-5 glass border-r border-white/6 flex flex-col gap-6 select-none bg-bg-dark/40 z-30">
         <div className="flex items-center gap-2.5 text-2xl font-bold font-heading">
           <i className="fa-solid fa-cube text-accent glow-text"></i>
           <span className="text-white glow-text">Track.</span>
@@ -827,6 +828,17 @@ export default function App() {
             }`}
           >
             <i className="fa-solid fa-chart-line text-xs"></i> <span>Dashboard</span>
+          </button>
+
+          <button
+            onClick={() => navigate('/timeline')}
+            className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm font-heading font-medium transition-all text-left cursor-pointer ${
+              location.pathname === '/timeline'
+                ? 'bg-accent text-white shadow-[0_4px_15px_var(--accent-glow)]'
+                : 'text-text-secondary hover:text-white hover:bg-white/4'
+            }`}
+          >
+            <i className="fa-solid fa-timeline text-xs"></i> <span>Project Timelines</span>
           </button>
           
           <button
@@ -989,6 +1001,17 @@ export default function App() {
               selectedGanttProjects={selectedGanttProjects}
               onSelectedGanttProjectsChange={setSelectedGanttProjects}
               escapeHTML={escapeHTML}
+            />
+          } />
+
+          <Route path="/timeline" element={
+            <ProjectTimeline
+              projects={projects}
+              selectedGanttProjects={selectedGanttProjects}
+              onSelectedGanttProjectsChange={setSelectedGanttProjects}
+              onTaskEdit={(task, projId) => { navigate(`/project/${projId}`); setTaskModal({ isOpen: true, data: task }); }}
+              onTaskUpdate={handleTaskUpdate}
+              showToast={showToast}
             />
           } />
 

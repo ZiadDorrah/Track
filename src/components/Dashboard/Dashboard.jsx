@@ -419,15 +419,6 @@ export default function Dashboard({
           </div>
         </div>
 
-        {/* Global Gantt Chart Timeline */}
-        <div className="glass border border-white/6 p-6 flex flex-col min-h-[450px]">
-          <GanttChart
-            projects={projects}
-            selectedGanttProjects={selectedGanttProjects}
-            onSelectedGanttProjectsChange={onSelectedGanttProjectsChange}
-          />
-        </div>
-
       </div>
 
       {/* Project Templates Selector Modal */}
