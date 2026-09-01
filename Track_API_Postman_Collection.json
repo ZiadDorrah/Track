@@ -2,7 +2,7 @@
 	"info": {
 		"_postman_id": "8c44b931-e129-4d64-9640-bd4465494d45",
 		"name": "Track. Enterprise API Collection",
-		"description": "API collection for the Track Multi-User Enterprise Task Tracker, backed by SQLite.\n\n**Auth model**: cookie-based sessions (`session_token`, httpOnly). Postman's built-in cookie jar handles this automatically once you run **Login** — no manual header wiring needed. There is no Bearer/API-key auth in this API.\n\n**Roles**: every user is either a regular user or an admin (`isAdmin`). \"Manager\" and \"employee\" are not fixed roles — they're derived from rows in the `manager_employee` table, so any user can be a manager of some people and a report of others. Endpoints under **Admin (User & Hierarchy)** require `isAdmin = true` on the calling session (403 otherwise); endpoints under **Team & Hierarchy** just need an authenticated session (no admin flag), since they only ever return data scoped to the caller; all other endpoints likewise just require an authenticated session (401 otherwise).\n\n**Two known scoping gaps, documented on their requests rather than hidden**: `GET /api/reports/manager` (Team & Hierarchy) aggregates a report's task/time totals company-wide instead of scoping to what the calling manager can actually see; `POST /api/projects/:id/members` (Projects) lets an owner add any active company user, not just their own direct reports. Neither crashes anything — see each request's description for the specifics.\n\n**Self-signup is locked down**: `POST /api/auth/signup` only succeeds while the system has zero users (it creates the first account as admin). After that it always returns 403 — new accounts must be created via **Provision User (Admin)**.\n\n**Suggested run order** (this collection is wired for it via test scripts that auto-populate collection variables like `{{projectId}}`, `{{taskId}}`, `{{managerUserId}}`, `{{employeeUserId}}`, `{{templateId}}` — no manual copy-pasting of IDs required):\n1. Authentication → Sign Up (only if the DB is empty) → Login\n2. Admin → provision a manager + an employee, link them\n3. Team & Hierarchy → confirm the link (Get My Direct Reports / Get My Managers), try the rollups\n4. Projects → create a project (as the logged-in admin/manager)\n5. Tasks → create/update/bulk-update a task, assigning it to the employee\n6. Templates → create a template, spin up a project from it\n\nWithin each folder, non-destructive requests are ordered first; **Delete**/**Unassign** requests are last and destructive — run them only once you're done exploring that folder.",
+		"description": "API collection for the Track Multi-User Enterprise Task Tracker, backed by SQLite.\n\n**Auth model**: cookie-based sessions (`session_token`, httpOnly). Postman's built-in cookie jar handles this automatically once you run **Login** — no manual header wiring needed. There is no Bearer/API-key auth in this API.\n\n**Roles**: every user is either a regular user or an admin (`isAdmin`). \"Manager\" and \"employee\" are not fixed roles — they're derived from rows in the `manager_employee` table, so any user can be a manager of some people and a report of others. Endpoints under **Admin (User & Hierarchy)** require `isAdmin = true` on the calling session (403 otherwise); endpoints under **Team & Hierarchy** just need an authenticated session (no admin flag), since they only ever return data scoped to the caller; all other endpoints likewise just require an authenticated session (401 otherwise).\n\n**Known gaps, documented on their requests rather than hidden**: bulk task status changes don't trigger *per-task* `task_assigned`/`task_completed` notifications (only single-task updates do) — though bulk operations correctly do trigger the project-wide completion notification if they happen to finish the project. `GET /api/kpi/dashboard` (Analytics & KPIs) is genuinely org-wide by design — every project counts for every caller — but that means its `memberWorkloadList`/`projectHealthList` sections expose every project's name and every person's task/time totals to every employee, not just people you share a project with. Neither is a crash risk — see each request's description for specifics.\n\n**Self-signup is locked down**: `POST /api/auth/signup` only succeeds while the system has zero users (it creates the first account as admin). After that it always returns 403 — new accounts must be created via **Provision User (Admin)**.\n\n**Suggested run order** (this collection is wired for it via test scripts that auto-populate collection variables like `{{projectId}}`, `{{taskId}}`, `{{managerUserId}}`, `{{employeeUserId}}`, `{{templateId}}` — no manual copy-pasting of IDs required):\n1. Authentication → Sign Up (only if the DB is empty) → Login\n2. Admin → provision a manager + an employee, link them\n3. Team & Hierarchy → confirm the link (Get My Direct Reports / Get My Managers), try the rollups\n4. Projects → create a project (as the logged-in admin/manager)\n5. Tasks → create/update/bulk-update a task, assigning it to the employee\n6. Notifications → run **Get My Notifications** as the employee to see the auto-generated `task_assigned` notification from step 5\n7. Analytics & KPIs → check the dashboard as both users to see the org-wide-labeling gap firsthand\n8. Templates → create a template, spin up a project from it\n\nWithin each folder, non-destructive requests are ordered first; **Delete**/**Unassign** requests are last and destructive — run them only once you're done exploring that folder.",
 		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
 	},
 	"item": [
@@ -1530,6 +1530,98 @@
 				}
 			],
 			"description": "Reusable task-list templates, owner-scoped, plus the endpoint that turns a template into a live project."
+		},
+		{
+			"name": "Notifications",
+			"item": [
+				{
+					"name": "Get My Notifications",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/notifications",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "notifications"]
+						},
+						"description": "Returns the caller's 30 most recent notifications plus their current unread count. Notifications are created automatically by the server on: being added to a project (`project_invited`), being assigned a task on create or reassignment (`task_assigned`), a task you created being marked done by someone else (`task_completed`), and every task in a project reaching `done` (`project_completed`, sent to the owner + all members) — there's no manual \"create notification\" endpoint. The actor is never notified about their own action (self-notifications are suppressed server-side).\n\n`project_completed` is guarded against re-notify spam via an internal `completed_notified_at` marker on the project: toggling a task done/undone/done again only fires once per genuine completion, not once per save. It fires from single-task update, task create, task delete, and bulk operations alike — completing a project via any of those paths triggers it.\n\n**⚠️ Known gap**: bulk status changes via **Bulk Task Operations** (Tasks folder) correctly trigger `project_completed` if they finish the project, but still don't trigger the *per-task* `task_assigned`/`task_completed` notifications that single-task updates do.\n\n**Responses**\n- `200` — `{ unreadCount, notifications: [{ id, type, title, body, entityType, entityId, actorName, isRead, createdAt }] }` (empty array if none)"
+					},
+					"response": [
+						{
+							"name": "200 OK",
+							"originalRequest": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{baseUrl}}/api/notifications",
+									"host": ["{{baseUrl}}"],
+									"path": ["api", "notifications"]
+								}
+							},
+							"status": "OK",
+							"code": 200,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{ "key": "Content-Type", "value": "application/json; charset=utf-8" }
+							],
+							"cookie": [],
+							"body": "{\n    \"unreadCount\": 2,\n    \"notifications\": [\n        {\n            \"id\": \"notif-1788173804329-czvz1\",\n            \"type\": \"task_assigned\",\n            \"title\": \"New Task Assigned\",\n            \"body\": \"You were assigned task \\\"Do the work\\\" in project \\\"Alpha Project\\\".\",\n            \"entityType\": \"project\",\n            \"entityId\": \"768ac46d-96c7-4c3f-933b-20d625af7d99\",\n            \"actorName\": \"Alice Admin\",\n            \"isRead\": false,\n            \"createdAt\": \"2026-08-31T10:56:44.329Z\"\n        },\n        {\n            \"id\": \"notif-1788173804230-nyo5j\",\n            \"type\": \"project_invited\",\n            \"title\": \"Added to Project\",\n            \"body\": \"You were added as a collaborator to project \\\"Alpha Project\\\".\",\n            \"entityType\": \"project\",\n            \"entityId\": \"768ac46d-96c7-4c3f-933b-20d625af7d99\",\n            \"actorName\": \"Alice Admin\",\n            \"isRead\": false,\n            \"createdAt\": \"2026-08-31T10:56:44.230Z\"\n        }\n    ]\n}"
+						}
+					]
+				},
+				{
+					"name": "Mark Notification As Read",
+					"request": {
+						"method": "PUT",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/notifications/:id/read",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "notifications", ":id", "read"],
+							"variable": [
+								{ "key": "id", "value": "INSERT_NOTIFICATION_ID_HERE" }
+							]
+						},
+						"description": "Marks one notification read. Scoped by `user_id` under the hood, so you can only ever mark your own notifications read — passing another user's notification ID silently affects zero rows rather than erroring, since the query just won't match anything.\n\n**Responses**\n- `200` — `{ \"message\": \"Notification marked as read.\" }` (always, even if the ID didn't match one of yours)"
+					},
+					"response": []
+				},
+				{
+					"name": "Mark All Notifications As Read",
+					"request": {
+						"method": "PUT",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/notifications/read-all",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "notifications", "read-all"]
+						},
+						"description": "Marks every one of the caller's notifications read in one call — what the notification bell's \"Mark all read\" button uses.\n\n**Responses**\n- `200` — `{ \"message\": \"All notifications marked as read.\" }` (always)"
+					},
+					"response": []
+				}
+			],
+			"description": "In-app notification feed — server-generated on task assignment, task completion, project completion, and project invitations, polled by the frontend bell every 15s. No endpoint here creates a notification directly; they're all side effects of actions in the Projects/Tasks folders."
+		},
+		{
+			"name": "Analytics & KPIs",
+			"item": [
+				{
+					"name": "Get KPI Dashboard",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/kpi/dashboard",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "kpi", "dashboard"]
+						},
+						"description": "Aggregate KPIs powering the Analytics page: overall completion rate, active project count, total time logged, overdue task count, a per-project health breakdown (`on-track` / `at-risk` / `delayed`), and a per-team-member workload breakdown.\n\n**Genuinely org-wide**: the query is `SELECT * FROM projects` with no visibility filter, so every project in the system counts toward these numbers for every caller, matching the \"Executive KPI & Analytics Dashboard\" / \"real-time org-wide KPIs\" framing in the frontend. Verified: an admin and an employee who shares only 1 of the admin's 2 projects both now get `totalProjects: 2` from this endpoint.\n\n**⚠️ Known consequence of being org-wide**: `projectHealthList` includes every project's actual name, and `memberWorkloadList` includes every assignee's display name next to their task/time totals - not just counts. Any authenticated user calling this endpoint can now see the name and workload of every project and every person in the company, including ones they share no project with. Confirmed live: an employee's response included another user's private project by name and that user's exact task/time totals. If per-person/per-project anonymity matters more than a literal org-wide view, this needs a follow-up (e.g. strip names from `memberWorkloadList`/`projectHealthList`, or restrict which fields non-admins receive).\n\n**Responses**\n- `200` — `{ totalProjects, totalTasks, completedTasks, overdueTasks, completionRate, totalTimeLoggedSeconds, projectHealthList: [{ id, name, totalTasks, completedTasks, overdueTasks, completionPct, health }], memberWorkloadList: [{ userId, displayName, totalTasks, pendingTasks, completedTasks, overdueTasks, timeLoggedSeconds }] }` — all fields zero/empty if you have no visible projects"
+					},
+					"response": []
+				}
+			],
+			"description": "Aggregate/executive-level metrics, genuinely org-wide (every project counts for every caller) — see the request above for the naming/privacy trade-off that comes with that."
 		}
 	],
 	"event": [

@@ -7,6 +7,7 @@ import Settings from './components/Settings/Settings.jsx';
 import Team from './components/Team/Team.jsx';
 import ManagerDashboard from './components/Reports/ManagerDashboard.jsx';
 import ProjectTimeline from './components/Timeline/ProjectTimeline.jsx';
+import NotificationBell from './components/Notifications/NotificationBell.jsx';
 import { ProjectModal, TaskModal } from './components/Modals/Modals.jsx';
 import Pomodoro from './components/Pomodoro/Pomodoro.jsx';
 import GlobalSearch from './components/GlobalSearch/GlobalSearch.jsx';
@@ -799,19 +800,20 @@ export default function App() {
           </span>
         </button>
 
-        {/* Profile Card */}
-        <div className="flex items-center gap-3 p-3 bg-white/[0.02] border border-white/6 rounded-xl relative">
-          <div className="w-10 h-10 rounded-lg bg-accent/20 border border-accent/30 flex items-center justify-center text-accent text-lg">
+        {/* Profile Card & Notification Bell */}
+        <div className="flex items-center gap-2 p-3 bg-white/[0.02] border border-white/6 rounded-xl relative">
+          <div className="w-9 h-9 rounded-lg bg-accent/20 border border-accent/30 flex items-center justify-center text-accent text-base flex-shrink-0">
             <i className="fa-solid fa-user-tie"></i>
           </div>
           <div className="flex flex-col overflow-hidden flex-1">
-            <span className="text-sm font-semibold text-white truncate max-w-full" title={user.username}>{user.username}</span>
-            <span className="text-[10px] text-text-muted font-medium">Local Workspace</span>
+            <span className="text-xs font-semibold text-white truncate max-w-full" title={user.username}>{user.username}</span>
+            <span className="text-[9px] text-text-muted font-medium truncate">Workspace</span>
           </div>
+          <NotificationBell />
           <button
             onClick={handleLogout}
             title="Sign Out"
-            className="text-text-muted hover:text-red-400 p-1.5 transition-colors cursor-pointer text-sm"
+            className="text-text-muted hover:text-red-400 p-1 transition-colors cursor-pointer text-xs"
           >
             <i className="fa-solid fa-arrow-right-from-bracket"></i>
           </button>

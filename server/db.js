@@ -121,6 +121,7 @@ async function initSchema() {
       github TEXT DEFAULT '',
       owner_id TEXT NOT NULL,
       created_at TEXT NOT NULL,
+      completed_notified_at TEXT,
       FOREIGN KEY (owner_id) REFERENCES users(id) ON DELETE CASCADE
     );
 
@@ -211,6 +212,12 @@ async function initSchema() {
     CREATE INDEX IF NOT EXISTS idx_time_sessions_user ON time_sessions(user_id);
     CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(user_id, is_read, created_at);
   `);
+
+  // Safe migration for pre-existing databases created before this column existed.
+  const projectColumns = await db.all("PRAGMA table_info(projects)");
+  if (!projectColumns.some(c => c.name === 'completed_notified_at')) {
+    await db.exec('ALTER TABLE projects ADD COLUMN completed_notified_at TEXT');
+  }
 }
 
 db.initPromise = initSchema();

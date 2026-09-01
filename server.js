@@ -172,6 +172,75 @@ async function isValidAssignee(assigneeId, assignerId, projectId) {
   return false;
 }
 
+// Notification Creation Helper
+async function createNotification({ userId, type, title, body, entityType = null, entityId = null, actorId = null }) {
+  if (!userId) return;
+  if (actorId && actorId === userId) return;
+
+  const id = 'notif-' + Date.now() + '-' + Math.random().toString(36).substring(2, 7);
+  const createdAt = new Date().toISOString();
+
+  try {
+    await db.run(`
+      INSERT INTO notifications (id, user_id, type, title, body, entity_type, entity_id, actor_id, is_read, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?)
+    `, [id, userId, type, title, body, entityType, entityId, actorId, createdAt]);
+  } catch (err) {
+    console.error('Create notification error:', err);
+  }
+}
+
+// Re-evaluates whether every task in a project is now done, and notifies the
+// owner + members exactly once per completion. Safe to call after any task
+// create/update/delete/bulk mutation - it re-derives current state from the
+// DB rather than assuming what changed. Guarded by projects.completed_notified_at
+// so toggling a task done/undone/done doesn't spam repeat notifications; the
+// guard resets itself once the project stops being fully complete, so a
+// genuine later re-completion still notifies.
+async function checkAndNotifyProjectCompletion(projectId, actorId) {
+  try {
+    const project = await db.get('SELECT id, name, owner_id, completed_notified_at FROM projects WHERE id = ?', [projectId]);
+    if (!project) return;
+
+    const counts = await db.get(`
+      SELECT COUNT(*) as total, SUM(CASE WHEN status = 'done' THEN 1 ELSE 0 END) as done
+      FROM tasks WHERE project_id = ?
+    `, [projectId]);
+
+    const total = counts ? counts.total : 0;
+    const done = counts ? (counts.done || 0) : 0;
+    const isFullyComplete = total > 0 && done === total;
+
+    if (!isFullyComplete) {
+      if (project.completed_notified_at) {
+        await db.run('UPDATE projects SET completed_notified_at = NULL WHERE id = ?', [projectId]);
+      }
+      return;
+    }
+
+    if (project.completed_notified_at) return;
+
+    const members = await db.all('SELECT user_id FROM project_members WHERE project_id = ?', [projectId]);
+    const recipientIds = new Set([project.owner_id, ...members.map(m => m.user_id)]);
+
+    for (const userId of recipientIds) {
+      await createNotification({
+        userId,
+        actorId,
+        type: 'project_completed',
+        title: 'Project Completed',
+        body: `All tasks in project "${project.name}" have been completed.`,
+        entityType: 'project',
+        entityId: projectId
+      });
+    }
+
+    await db.run('UPDATE projects SET completed_notified_at = ? WHERE id = ?', [new Date().toISOString(), projectId]);
+  } catch (err) {
+    console.error('Project completion check error:', err);
+  }
+}
+
 // ================= AUTHENTICATION ENDPOINTS =================
 
 // Signup (Restricted to system bootstrap / initial admin account creation only)
@@ -817,6 +886,16 @@ app.post('/api/projects/:id/members', authenticate, async (req, res) => {
       VALUES (?, ?, ?, ?, ?)
     `, [memberId, projectId, userId, me, createdAt]);
 
+    await createNotification({
+      userId: userId,
+      actorId: me,
+      type: 'project_invited',
+      title: 'Added to Project',
+      body: `You were added as a collaborator to project "${project.name}".`,
+      entityType: 'project',
+      entityId: projectId
+    });
+
     const updatedMembers = await db.all(`
       SELECT u.id, u.username, u.display_name as displayName, u.job_title as jobTitle, u.email, pm.created_at as joinedAt
       FROM project_members pm
@@ -989,6 +1068,179 @@ app.get('/api/projects/:id/time-rollup', authenticate, async (req, res) => {
   }
 });
 
+// ================= NOTIFICATION ENDPOINTS =================
+
+// Get notifications for current user
+app.get('/api/notifications', authenticate, async (req, res) => {
+  try {
+    const me = req.user.id;
+    const rows = await db.all(`
+      SELECT n.*, u.display_name as actor_name, u.username as actor_username
+      FROM notifications n
+      LEFT JOIN users u ON n.actor_id = u.id
+      WHERE n.user_id = ?
+      ORDER BY n.created_at DESC
+      LIMIT 30
+    `, [me]);
+
+    const unreadRow = await db.get(`
+      SELECT COUNT(*) as cnt FROM notifications WHERE user_id = ? AND is_read = 0
+    `, [me]);
+
+    res.json({
+      unreadCount: unreadRow ? unreadRow.cnt : 0,
+      notifications: rows.map(r => ({
+        id: r.id,
+        type: r.type,
+        title: r.title,
+        body: r.body,
+        entityType: r.entity_type,
+        entityId: r.entity_id,
+        actorName: r.actor_name || r.actor_username || 'System',
+        isRead: Boolean(r.is_read),
+        createdAt: r.created_at
+      }))
+    });
+  } catch (err) {
+    console.error('Fetch notifications error:', err);
+    res.status(500).json({ error: 'Failed to fetch notifications.' });
+  }
+});
+
+// Mark single notification as read
+app.put('/api/notifications/:id/read', authenticate, async (req, res) => {
+  try {
+    await db.run('UPDATE notifications SET is_read = 1 WHERE id = ? AND user_id = ?', [req.params.id, req.user.id]);
+    res.json({ message: 'Notification marked as read.' });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to update notification.' });
+  }
+});
+
+// Mark all notifications as read
+app.put('/api/notifications/read-all', authenticate, async (req, res) => {
+  try {
+    await db.run('UPDATE notifications SET is_read = 1 WHERE user_id = ?', [req.user.id]);
+    res.json({ message: 'All notifications marked as read.' });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to mark notifications as read.' });
+  }
+});
+
+// ================= KPI DASHBOARD ENDPOINTS =================
+
+app.get('/api/kpi/dashboard', authenticate, async (req, res) => {
+  try {
+    // Org-wide by design: every project counts toward these numbers, not just
+    // ones the caller owns/is a member of. Safe because this endpoint only
+    // ever returns aggregates (counts, percentages, totals) - no task titles,
+    // no task-level detail - so it doesn't leak anything the per-task
+    // assigner-only visibility rule is meant to protect.
+    const projects = await db.all('SELECT * FROM projects');
+
+    const projectIds = projects.map(p => p.id);
+    if (projectIds.length === 0) {
+      return res.json({
+        totalProjects: 0,
+        totalTasks: 0,
+        completedTasks: 0,
+        overdueTasks: 0,
+        completionRate: 0,
+        totalTimeLoggedSeconds: 0,
+        projectHealthList: [],
+        memberWorkloadList: []
+      });
+    }
+
+    const placeholders = projectIds.map(() => '?').join(',');
+
+    // Aggregate Tasks
+    const allTasks = await db.all(`
+      SELECT t.*, u.display_name as assignee_name, u.username as assignee_username
+      FROM tasks t
+      LEFT JOIN users u ON t.assignee_id = u.id
+      WHERE t.project_id IN (${placeholders})
+    `, projectIds);
+
+    const nowIso = new Date().toISOString().slice(0, 10);
+    const totalTasks = allTasks.length;
+    const completedTasks = allTasks.filter(t => t.status === 'done').length;
+    const overdueTasks = allTasks.filter(t => t.status !== 'done' && t.deadline && t.deadline < nowIso).length;
+    const completionRate = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
+    const totalTimeLoggedSeconds = allTasks.reduce((sum, t) => sum + (t.time_logged || 0), 0);
+
+    // Project Health Status Breakdown
+    const projectHealthList = projects.map(p => {
+      const pTasks = allTasks.filter(t => t.project_id === p.id);
+      const pTotal = pTasks.length;
+      const pDone = pTasks.filter(t => t.status === 'done').length;
+      const pOverdue = pTasks.filter(t => t.status !== 'done' && t.deadline && t.deadline < nowIso).length;
+      const pPct = pTotal > 0 ? Math.round((pDone / pTotal) * 100) : 0;
+
+      let health = 'on-track';
+      if (pOverdue > 2 || (pTotal > 0 && pPct < 30 && pOverdue > 0)) {
+        health = 'delayed';
+      } else if (pOverdue > 0 || (pTotal > 0 && pPct < 50)) {
+        health = 'at-risk';
+      }
+
+      return {
+        id: p.id,
+        name: p.name,
+        totalTasks: pTotal,
+        completedTasks: pDone,
+        overdueTasks: pOverdue,
+        completionPct: pPct,
+        health
+      };
+    });
+
+    // Team Workload Distribution
+    const memberWorkloadMap = {};
+    for (const t of allTasks) {
+      if (!t.assignee_id) continue;
+      const uid = t.assignee_id;
+      if (!memberWorkloadMap[uid]) {
+        memberWorkloadMap[uid] = {
+          userId: uid,
+          displayName: t.assignee_name || t.assignee_username || 'User',
+          totalTasks: 0,
+          pendingTasks: 0,
+          completedTasks: 0,
+          overdueTasks: 0,
+          timeLoggedSeconds: 0
+        };
+      }
+      memberWorkloadMap[uid].totalTasks += 1;
+      if (t.status === 'done') {
+        memberWorkloadMap[uid].completedTasks += 1;
+      } else {
+        memberWorkloadMap[uid].pendingTasks += 1;
+        if (t.deadline && t.deadline < nowIso) {
+          memberWorkloadMap[uid].overdueTasks += 1;
+        }
+      }
+      memberWorkloadMap[uid].timeLoggedSeconds += (t.time_logged || 0);
+    }
+
+    const memberWorkloadList = Object.values(memberWorkloadMap).sort((a, b) => b.totalTasks - a.totalTasks);
+
+    res.json({
+      totalProjects: projects.length,
+      totalTasks,
+      completedTasks,
+      overdueTasks,
+      completionRate,
+      totalTimeLoggedSeconds,
+      projectHealthList,
+      memberWorkloadList
+    });
+  } catch (err) {
+    console.error('Fetch KPI dashboard error:', err);
+    res.status(500).json({ error: 'Failed to generate KPI dashboard.' });
+  }
+});
+
 // ================= TASK ENDPOINTS =================
 
 // Create task inside a project
@@ -1055,6 +1307,21 @@ app.post('/api/projects/:projectId/tasks', authenticate, async (req, res) => {
     ]);
 
     const createdTask = await db.get('SELECT * FROM tasks WHERE id = ?', [taskId]);
+
+    if (assignedUser && assignedUser !== me) {
+      await createNotification({
+        userId: assignedUser,
+        actorId: me,
+        type: 'task_assigned',
+        title: 'New Task Assigned',
+        body: `You were assigned task "${title}" in project "${project.name}".`,
+        entityType: 'project',
+        entityId: projectId
+      });
+    }
+
+    await checkAndNotifyProjectCompletion(projectId, me);
+
     res.status(201).json(formatTaskRow(createdTask));
   } catch (err) {
     console.error('Create task error:', err);
@@ -1159,8 +1426,36 @@ app.put('/api/projects/:projectId/tasks/:taskId', authenticate, async (req, res)
       }
     }
 
-    const updatedTask = await db.get('SELECT * FROM tasks WHERE id = ?', [taskId]);
-    res.json(formatTaskRow(updatedTask));
+    const updatedTaskRow = await db.get('SELECT * FROM tasks WHERE id = ?', [taskId]);
+
+    // Send notifications if status changed to done or assignee changed
+    if (newStatus === 'done' && existingTask.status !== 'done' && existingTask.created_by_id !== me) {
+      await createNotification({
+        userId: existingTask.created_by_id,
+        actorId: me,
+        type: 'task_completed',
+        title: 'Task Completed',
+        body: `Task "${title}" was marked completed by ${req.user.displayName || req.user.username}.`,
+        entityType: 'project',
+        entityId: projectId
+      });
+    }
+
+    if (assigneeId && assigneeId !== existingTask.assignee_id && assigneeId !== me) {
+      await createNotification({
+        userId: assigneeId,
+        actorId: me,
+        type: 'task_assigned',
+        title: 'Task Reassigned to You',
+        body: `Task "${title}" was assigned to you.`,
+        entityType: 'project',
+        entityId: projectId
+      });
+    }
+
+    await checkAndNotifyProjectCompletion(projectId, me);
+
+    res.json(formatTaskRow(updatedTaskRow));
   } catch (err) {
     console.error('Update task error:', err);
     res.status(500).json({ error: 'Failed to update task.' });
@@ -1187,6 +1482,7 @@ app.delete('/api/projects/:projectId/tasks/:taskId', authenticate, async (req, r
     }
 
     await db.run('DELETE FROM tasks WHERE id = ?', [taskId]);
+    await checkAndNotifyProjectCompletion(projectId, me);
     res.json({ message: 'Task deleted successfully.' });
   } catch (err) {
     console.error('Delete task error:', err);
@@ -1236,6 +1532,8 @@ app.post('/api/projects/:projectId/tasks/bulk', authenticate, async (req, res) =
         await db.run('UPDATE tasks SET priority = ? WHERE id = ? AND project_id = ?', [value, tId, projectId]);
       }
     }
+
+    await checkAndNotifyProjectCompletion(projectId, me);
 
     const tasks = await db.all('SELECT * FROM tasks WHERE project_id = ? ORDER BY created_at ASC', [projectId]);
     res.json(tasks.map(formatTaskRow));
