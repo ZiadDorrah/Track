@@ -2,7 +2,7 @@
 	"info": {
 		"_postman_id": "8c44b931-e129-4d64-9640-bd4465494d45",
 		"name": "Track. Enterprise API Collection",
-		"description": "API collection for the Track Multi-User Enterprise Task Tracker, backed by SQLite.\n\n**Auth model**: cookie-based sessions (`session_token`, httpOnly). Postman's built-in cookie jar handles this automatically once you run **Login** — no manual header wiring needed. There is no Bearer/API-key auth in this API.\n\n**Roles**: every user is either a regular user or an admin (`isAdmin`). \"Manager\" and \"employee\" are not fixed roles — they're derived from rows in the `manager_employee` table, so any user can be a manager of some people and a report of others. Endpoints under **Admin (User & Hierarchy)** require `isAdmin = true` on the calling session (403 otherwise); endpoints under **Team & Hierarchy** just need an authenticated session (no admin flag), since they only ever return data scoped to the caller; all other endpoints likewise just require an authenticated session (401 otherwise).\n\n**Known gaps, documented on their requests rather than hidden**: bulk task status changes don't trigger *per-task* `task_assigned`/`task_completed` notifications (only single-task updates do) — though bulk operations correctly do trigger the project-wide completion notification if they happen to finish the project. `GET /api/kpi/dashboard` (Analytics & KPIs) is genuinely org-wide by design — every project counts for every caller — but that means its `memberWorkloadList`/`projectHealthList` sections expose every project's name and every person's task/time totals to every employee, not just people you share a project with. Neither is a crash risk — see each request's description for specifics.\n\n**Self-signup is locked down**: `POST /api/auth/signup` only succeeds while the system has zero users (it creates the first account as admin). After that it always returns 403 — new accounts must be created via **Provision User (Admin)**.\n\n**Suggested run order** (this collection is wired for it via test scripts that auto-populate collection variables like `{{projectId}}`, `{{taskId}}`, `{{managerUserId}}`, `{{employeeUserId}}`, `{{templateId}}` — no manual copy-pasting of IDs required):\n1. Authentication → Sign Up (only if the DB is empty) → Login\n2. Admin → provision a manager + an employee, link them\n3. Team & Hierarchy → confirm the link (Get My Direct Reports / Get My Managers), try the rollups\n4. Projects → create a project (as the logged-in admin/manager)\n5. Tasks → create/update/bulk-update a task, assigning it to the employee\n6. Notifications → run **Get My Notifications** as the employee to see the auto-generated `task_assigned` notification from step 5\n7. Analytics & KPIs → check the dashboard as both users to see the org-wide-labeling gap firsthand\n8. Templates → create a template, spin up a project from it\n\nWithin each folder, non-destructive requests are ordered first; **Delete**/**Unassign** requests are last and destructive — run them only once you're done exploring that folder.",
+		"description": "API collection for the Track Multi-User Enterprise Task Tracker, backed by SQLite.\n\n**Auth model**: cookie-based, now JWT + refresh token (`access_token` short-lived JWT, `refresh_token` opaque server-side token, plus a `session_token` backward-compat duplicate) — all httpOnly. Postman's built-in cookie jar handles all of this automatically once you run **Login** — no manual header wiring needed, and **Refresh Access Token** is rarely needed manually since `authenticate` auto-refreshes on an expired access token anyway. There is no Bearer/API-key auth in this API.\n\n**Fixed: JWT signing secret vulnerability.** `server.js`'s `JWT_SECRET` previously fell back to a hardcoded public string when unset, letting anyone forge a valid token for any account (verified live, including creating a rogue admin with zero credentials). That fallback is gone — the server now refuses to start (exit code 1) unless `JWT_SECRET` is set to a real value of at least 32 characters, loaded from a local `.env` file (see `.env.example`). Re-verified live that a token forged with the old hardcoded string is now rejected (`401`, cookies cleared).\n\n**Roles**: every user is either a regular user or an admin (`isAdmin`). \"Manager\" and \"employee\" are not fixed roles — they're derived from rows in the `manager_employee` table, so any user can be a manager of some people and a report of others. Endpoints under **Admin (User & Hierarchy)** require `isAdmin = true` on the calling session (403 otherwise); endpoints under **Team & Hierarchy** just need an authenticated session (no admin flag), since they only ever return data scoped to the caller; all other endpoints likewise just require an authenticated session (401 otherwise).\n\n**Known gaps, documented on their requests rather than hidden**: bulk task status changes don't trigger *per-task* `task_assigned`/`task_completed` notifications (only single-task updates do) — though bulk operations correctly do trigger the project-wide completion notification if they happen to finish the project. `GET /api/kpi/dashboard` (Analytics & KPIs) is genuinely org-wide by design — every project counts for every caller — but that means its `memberWorkloadList`/`projectHealthList` sections expose every project's name and every person's task/time totals to every employee, not just people you share a project with. Neither is a crash risk — see each request's description for specifics.\n\n**Self-signup is locked down**: `POST /api/auth/signup` only succeeds while the system has zero users (it creates the first account as admin). After that it always returns 403 — new accounts must be created via **Provision User (Admin)**.\n\n**Suggested run order** (this collection is wired for it via test scripts that auto-populate collection variables like `{{projectId}}`, `{{taskId}}`, `{{managerUserId}}`, `{{employeeUserId}}`, `{{templateId}}` — no manual copy-pasting of IDs required):\n1. Authentication → Sign Up (only if the DB is empty) → Login\n2. Admin → provision a manager + an employee, link them\n3. Team & Hierarchy → confirm the link (Get My Direct Reports / Get My Managers), try the rollups\n4. Projects → create a project (as the logged-in admin/manager)\n5. Tasks → create/update/bulk-update a task, assigning it to the employee\n6. Notifications → run **Get My Notifications** as the employee to see the auto-generated `task_assigned` notification from step 5\n7. Analytics & KPIs → check the dashboard as both users to see the org-wide-labeling gap firsthand\n8. Templates → create a template, spin up a project from it\n\nWithin each folder, non-destructive requests are ordered first; **Delete**/**Unassign** requests are last and destructive — run them only once you're done exploring that folder.",
 		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
 	},
 	"item": [
@@ -128,8 +128,9 @@
 									"    pm.expect(jsonData.user).to.have.property('id');",
 									"});",
 									"",
-									"pm.test('Session cookie was set', function () {",
-									"    pm.expect(pm.cookies.has('session_token')).to.be.true;",
+									"pm.test('Access and refresh cookies were set', function () {",
+									"    pm.expect(pm.cookies.has('access_token')).to.be.true;",
+									"    pm.expect(pm.cookies.has('refresh_token')).to.be.true;",
 									"});"
 								]
 							}
@@ -160,7 +161,7 @@
 								"login"
 							]
 						},
-						"description": "Verifies credentials, writes a hashed session row to SQLite (7-day expiry), and sets an `httpOnly`, `SameSite=Strict` `session_token` cookie. Postman's cookie jar stores this automatically for `{{baseUrl}}` — every subsequent request in this collection reuses it without any manual setup.\n\n**Responses**\n- `200` — `{ \"message\": \"Login successful!\", \"user\": { \"id\", \"username\", \"email\", \"displayName\", \"jobTitle\", \"isAdmin\" } }`\n- `400` — missing `username`/`password`\n- `401` — invalid username or password"
+						"description": "Verifies credentials and sets **three** httpOnly cookies (Postman's cookie jar stores them automatically for `{{baseUrl}}` — every subsequent request reuses them without manual setup):\n- `access_token` — a signed JWT (30 min expiry), verified by signature on every request with no DB lookup for the token itself (though the current implementation still queries `users` by id every request regardless — see the known-issue note below).\n- `refresh_token` — an opaque token, SHA-256-hashed and stored server-side in `sessions` (7-day expiry), exchanged via **Refresh Access Token** once the access token expires.\n- `session_token` — a backward-compatibility duplicate of `refresh_token`'s value, accepted as a fallback cookie name by both `authenticate` and **Refresh Access Token**.\n\nAll three cookies are `SameSite=Lax` (changed from `Strict` in the previous session-only model — no stated reason for the relaxation).\n\n**Fixed: previously signed with a hardcoded fallback secret.** `server.js` now requires a real `JWT_SECRET` (≥32 characters, loaded via `dotenv` from a local `.env` file, see `.env.example`) and refuses to start otherwise — no fallback. Verified live: a token forged with the old hardcoded string (`track-enterprise-jwt-secret-key-2026`) now gets `401` and has its cookies cleared, where it previously granted full admin access with zero credentials.\n\n**Responses**\n- `200` — `{ \"message\": \"Login successful!\", \"user\": { \"id\", \"username\", \"email\", \"displayName\", \"jobTitle\", \"isAdmin\" } }`\n- `400` — missing `username`/`password`\n- `401` — invalid username or password"
 					},
 					"response": [
 						{
@@ -185,7 +186,9 @@
 							"_postman_previewlanguage": "json",
 							"header": [
 								{ "key": "Content-Type", "value": "application/json; charset=utf-8" },
-								{ "key": "Set-Cookie", "value": "session_token=<hex>; Path=/; HttpOnly; SameSite=Strict" }
+								{ "key": "Set-Cookie", "value": "access_token=<jwt>; Max-Age=1800; Path=/; HttpOnly; SameSite=Lax" },
+									{ "key": "Set-Cookie", "value": "refresh_token=<hex>; Max-Age=604800; Path=/; HttpOnly; SameSite=Lax" },
+									{ "key": "Set-Cookie", "value": "session_token=<hex>; Max-Age=604800; Path=/; HttpOnly; SameSite=Lax" }
 							],
 							"cookie": [],
 							"body": "{\n    \"message\": \"Login successful!\",\n    \"user\": {\n        \"id\": \"1294e8df-18ed-402a-8080-f94be8679b6b\",\n        \"username\": \"admin\",\n        \"email\": \"admin@company.local\",\n        \"displayName\": \"System Administrator\",\n        \"jobTitle\": \"Administrator\",\n        \"isAdmin\": true\n    }\n}"
@@ -215,6 +218,41 @@
 							],
 							"cookie": [],
 							"body": "{\n    \"error\": \"Invalid username or password.\"\n}"
+						}
+					]
+				},
+				{
+					"name": "Refresh Access Token",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/auth/refresh",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "auth", "refresh"]
+						},
+						"description": "Exchanges a valid `refresh_token` (or the backward-compat `session_token`) cookie for a freshly-minted `access_token` cookie, without needing the username/password again. This is also called automatically by `authenticate` itself when a request arrives with an expired/missing access token but a still-valid refresh token — so in normal use you rarely need to call this endpoint directly; it exists mainly for a client to proactively refresh before the 30-minute access token expires.\n\n**Responses**\n- `200` — `{ \"message\": \"Token refreshed successfully.\" }`, sets a new `access_token` cookie\n- `401` — `{ \"error\": \"Refresh token missing.\" }` (no refresh cookie sent) or `{ \"error\": \"Invalid or expired refresh token.\" }` (revoked, e.g. by logout, or past its 7-day expiry)"
+					},
+					"response": [
+						{
+							"name": "401 Unauthorized — refresh token invalid or revoked",
+							"originalRequest": {
+								"method": "POST",
+								"header": [],
+								"url": {
+									"raw": "{{baseUrl}}/api/auth/refresh",
+									"host": ["{{baseUrl}}"],
+									"path": ["api", "auth", "refresh"]
+								}
+							},
+							"status": "Unauthorized",
+							"code": 401,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{ "key": "Content-Type", "value": "application/json; charset=utf-8" }
+							],
+							"cookie": [],
+							"body": "{\n    \"error\": \"Invalid or expired refresh token.\"\n}"
 						}
 					]
 				},

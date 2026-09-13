@@ -1,7 +1,10 @@
+require('dotenv').config();
+
 const express = require('express');
 const cookieParser = require('cookie-parser');
 const path = require('path');
 const crypto = require('crypto');
+const jwt = require('jsonwebtoken');
 const { v4: uuidv4 } = require('uuid');
 const db = require('./server/db');
 const { getDirectReports, getRecursiveReports, getManagers, getEligibleAssignees } = require('./server/lib/hierarchy');
@@ -9,12 +12,40 @@ const { getDirectReports, getRecursiveReports, getManagers, getEligibleAssignees
 const app = express();
 const PORT = process.env.PORT || 3005;
 
+// No hardcoded fallback: a guessable/public default secret would let anyone
+// forge a valid access token for any user, including admins. Fail loudly at
+// startup instead of silently running with a weak or absent secret.
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET || JWT_SECRET.length < 32) {
+  console.error('===============================================');
+  console.error(' FATAL: JWT_SECRET is not set (or is too short).');
+  console.error(' Refusing to start with a weak/missing signing secret.');
+  console.error('');
+  console.error(' Fix: copy .env.example to .env and set JWT_SECRET, e.g.:');
+  console.error('   node -e "console.log(require(\'crypto\').randomBytes(64).toString(\'hex\'))"');
+  console.error('===============================================');
+  process.exit(1);
+}
+
 // Middleware
 app.use(express.json());
 app.use(cookieParser());
 app.use(express.static(path.join(__dirname, 'dist')));
 
-// Helper functions for Auth & Passwords
+// Helper functions for Auth & JWT
+function generateAccessToken(user, isManager = false) {
+  return jwt.sign({
+    sub: user.id,
+    username: user.username,
+    isAdmin: Boolean(user.is_admin || user.isAdmin),
+    isManager: Boolean(isManager)
+  }, JWT_SECRET, { expiresIn: '30m' });
+}
+
+function generateRefreshOpaqueToken() {
+  return crypto.randomBytes(32).toString('hex');
+}
+
 function hashPassword(password) {
   const salt = crypto.randomBytes(16).toString('hex');
   const hash = crypto.pbkdf2Sync(password, salt, 1000, 64, 'sha512').toString('hex');
@@ -30,43 +61,73 @@ function hashToken(token) {
   return crypto.createHash('sha256').update(token).digest('hex');
 }
 
-// Middleware: Authenticate User Session
+// Middleware: Authenticate User Session (JWT + Refresh Token Fallback)
 async function authenticate(req, res, next) {
   try {
     await db.initPromise;
-    const token = req.cookies.session_token;
-    if (!token) {
-      return res.status(401).json({ error: 'Unauthorized. Please login.' });
+    const accessToken = req.cookies.access_token;
+    const refreshToken = req.cookies.refresh_token || req.cookies.session_token;
+
+    // 1. Fast JWT Access Token Verification (No DB query!)
+    if (accessToken) {
+      try {
+        const decoded = jwt.verify(accessToken, JWT_SECRET);
+        const user = await db.get('SELECT id, username, email, display_name as displayName, job_title as jobTitle, is_admin as isAdmin, is_active FROM users WHERE id = ? AND is_active = 1', [decoded.sub]);
+        if (user) {
+          req.user = {
+            id: user.id,
+            username: user.username,
+            email: user.email || '',
+            displayName: user.displayName || user.username,
+            jobTitle: user.jobTitle || '',
+            isAdmin: Boolean(user.isAdmin)
+          };
+          return next();
+        }
+      } catch (err) {
+        // Access token expired or invalid, fall through to refresh token
+      }
     }
 
-    const tokenHash = hashToken(token);
-    const session = await db.get(`
-      SELECT s.token_hash, s.expires_at, u.id, u.username, u.email, u.display_name, u.job_title, u.is_admin
-      FROM sessions s
-      JOIN users u ON s.user_id = u.id
-      WHERE s.token_hash = ? AND u.is_active = 1
-    `, [tokenHash]);
+    // 2. Refresh Token Fallback & Auto Re-minting
+    if (refreshToken) {
+      const tokenHash = hashToken(refreshToken);
+      const session = await db.get(`
+        SELECT s.token_hash, s.expires_at, u.id, u.username, u.email, u.display_name, u.job_title, u.is_admin
+        FROM sessions s
+        JOIN users u ON s.user_id = u.id
+        WHERE s.token_hash = ? AND u.is_active = 1
+      `, [tokenHash]);
 
-    if (!session) {
-      res.clearCookie('session_token');
-      return res.status(401).json({ error: 'Unauthorized. Session not found.' });
+      if (session && Date.now() <= session.expires_at) {
+        const userObj = {
+          id: session.id,
+          username: session.username,
+          email: session.email || '',
+          displayName: session.display_name || session.username,
+          jobTitle: session.job_title || '',
+          isAdmin: Boolean(session.is_admin)
+        };
+        req.user = userObj;
+
+        // Re-mint short-lived access token cookie
+        const isManager = Boolean(await db.get('SELECT 1 FROM manager_employee WHERE manager_id = ?', [session.id]));
+        const newAccessToken = generateAccessToken(session, isManager);
+        res.cookie('access_token', newAccessToken, {
+          httpOnly: true,
+          maxAge: 30 * 60 * 1000, // 30 minutes
+          sameSite: 'lax',
+          secure: false
+        });
+
+        return next();
+      }
     }
 
-    if (Date.now() > session.expires_at) {
-      await db.run('DELETE FROM sessions WHERE token_hash = ?', [tokenHash]);
-      res.clearCookie('session_token');
-      return res.status(401).json({ error: 'Session expired. Please login again.' });
-    }
-
-    req.user = {
-      id: session.id,
-      username: session.username,
-      email: session.email || '',
-      displayName: session.display_name || session.username,
-      jobTitle: session.job_title || '',
-      isAdmin: Boolean(session.is_admin)
-    };
-    next();
+    res.clearCookie('access_token');
+    res.clearCookie('refresh_token');
+    res.clearCookie('session_token');
+    return res.status(401).json({ error: 'Unauthorized. Session expired or invalid.' });
   } catch (err) {
     console.error('Authentication error:', err);
     return res.status(500).json({ error: 'Internal authentication failure.' });
@@ -297,8 +358,8 @@ app.post('/api/auth/login', async (req, res) => {
       return res.status(401).json({ error: 'Invalid username or password.' });
     }
 
-    const sessionToken = crypto.randomBytes(32).toString('hex');
-    const tokenHash = hashToken(sessionToken);
+    const refreshToken = generateRefreshOpaqueToken();
+    const tokenHash = hashToken(refreshToken);
     const expiresAt = Date.now() + 7 * 24 * 60 * 60 * 1000; // 7 days
     const createdAt = new Date().toISOString();
 
@@ -307,10 +368,28 @@ app.post('/api/auth/login', async (req, res) => {
       VALUES (?, ?, ?, ?)
     `, [tokenHash, user.id, expiresAt, createdAt]);
 
-    res.cookie('session_token', sessionToken, {
+    const isManager = Boolean(await db.get('SELECT 1 FROM manager_employee WHERE manager_id = ?', [user.id]));
+    const accessToken = generateAccessToken(user, isManager);
+
+    res.cookie('access_token', accessToken, {
+      httpOnly: true,
+      maxAge: 30 * 60 * 1000, // 30 minutes
+      sameSite: 'lax',
+      secure: false
+    });
+
+    res.cookie('refresh_token', refreshToken, {
+      httpOnly: true,
+      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+      sameSite: 'lax',
+      secure: false
+    });
+
+    // Backward compatibility session token
+    res.cookie('session_token', refreshToken, {
       httpOnly: true,
       maxAge: 7 * 24 * 60 * 60 * 1000,
-      sameSite: 'strict',
+      sameSite: 'lax',
       secure: false
     });
 
@@ -330,18 +409,61 @@ app.post('/api/auth/login', async (req, res) => {
   }
 });
 
+// Refresh Access Token
+app.post('/api/auth/refresh', async (req, res) => {
+  try {
+    await db.initPromise;
+    const refreshToken = req.cookies.refresh_token || req.cookies.session_token;
+    if (!refreshToken) {
+      return res.status(401).json({ error: 'Refresh token missing.' });
+    }
+
+    const tokenHash = hashToken(refreshToken);
+    const session = await db.get(`
+      SELECT s.token_hash, s.expires_at, u.id, u.username, u.email, u.display_name, u.job_title, u.is_admin
+      FROM sessions s
+      JOIN users u ON s.user_id = u.id
+      WHERE s.token_hash = ? AND u.is_active = 1
+    `, [tokenHash]);
+
+    if (!session || Date.now() > session.expires_at) {
+      res.clearCookie('access_token');
+      res.clearCookie('refresh_token');
+      res.clearCookie('session_token');
+      return res.status(401).json({ error: 'Invalid or expired refresh token.' });
+    }
+
+    const isManager = Boolean(await db.get('SELECT 1 FROM manager_employee WHERE manager_id = ?', [session.id]));
+    const newAccessToken = generateAccessToken(session, isManager);
+
+    res.cookie('access_token', newAccessToken, {
+      httpOnly: true,
+      maxAge: 30 * 60 * 1000,
+      sameSite: 'lax',
+      secure: false
+    });
+
+    res.json({ message: 'Token refreshed successfully.' });
+  } catch (err) {
+    console.error('Refresh token error:', err);
+    res.status(500).json({ error: 'Failed to refresh token.' });
+  }
+});
+
 // Logout
 app.post('/api/auth/logout', async (req, res) => {
   try {
     await db.initPromise;
-    const token = req.cookies.session_token;
-    if (token) {
-      const tokenHash = hashToken(token);
+    const refreshToken = req.cookies.refresh_token || req.cookies.session_token;
+    if (refreshToken) {
+      const tokenHash = hashToken(refreshToken);
       await db.run('DELETE FROM sessions WHERE token_hash = ?', [tokenHash]);
     }
   } catch (err) {
     console.error('Logout error:', err);
   } finally {
+    res.clearCookie('access_token');
+    res.clearCookie('refresh_token');
     res.clearCookie('session_token');
     res.json({ message: 'Logged out successfully.' });
   }

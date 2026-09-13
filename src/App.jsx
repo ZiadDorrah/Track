@@ -9,7 +9,6 @@ import ManagerDashboard from './components/Reports/ManagerDashboard.jsx';
 import ProjectTimeline from './components/Timeline/ProjectTimeline.jsx';
 import NotificationBell from './components/Notifications/NotificationBell.jsx';
 import { ProjectModal, TaskModal } from './components/Modals/Modals.jsx';
-import Pomodoro from './components/Pomodoro/Pomodoro.jsx';
 import GlobalSearch from './components/GlobalSearch/GlobalSearch.jsx';
 import PriorityMatrix from './components/PriorityMatrix/PriorityMatrix.jsx';
 import WeeklyReview from './components/WeeklyReview/WeeklyReview.jsx';
@@ -1097,11 +1096,7 @@ export default function App() {
         eligibleAssignees={eligibleAssignees}
       />
 
-      {/* Global Pomodoro Timer Widget */}
-      <Pomodoro
-        onTaskUpdate={handleTaskUpdate}
-        showToast={showToast}
-      />
+
 
       {/* Global Command Palette Search */}
       <GlobalSearch

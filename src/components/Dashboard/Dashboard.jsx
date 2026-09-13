@@ -49,39 +49,6 @@ export default function Dashboard({
   const immediateTasks = [];
   let totalPomodoros = 0;
 
-  // Calculate Pomodoro Focus Streak
-  const pomodoroDates = new Set();
-  (projects || []).forEach(p => {
-    (p?.tasks || []).forEach(t => {
-      (t?.pomodoroSessions || []).forEach(s => {
-        const dateVal = typeof s === 'string' ? s : (s?.completedAt || s?.timestamp || s?.date || '');
-        if (dateVal && typeof dateVal === 'string') {
-          pomodoroDates.add(dateVal.split('T')[0]);
-        }
-      });
-    });
-  });
-
-  let focusStreak = 0;
-  if (pomodoroDates.size > 0) {
-    const curr = new Date();
-    let checkDateStr = curr.toISOString().split('T')[0];
-
-    if (!pomodoroDates.has(checkDateStr)) {
-      // Check if yesterday had one to keep active streak counting
-      curr.setDate(curr.getDate() - 1);
-      checkDateStr = curr.toISOString().split('T')[0];
-    }
-
-    let iterations = 0;
-    while (pomodoroDates.has(checkDateStr) && iterations < 365) {
-      focusStreak++;
-      iterations++;
-      curr.setDate(curr.getDate() - 1);
-      checkDateStr = curr.toISOString().split('T')[0];
-    }
-  }
-
   // Calculate Weekly Time Log
   const last7Days = [];
   for (let i = 6; i >= 0; i--) {
@@ -240,17 +207,6 @@ export default function Dashboard({
           <div>
             <h3 className="text-xl font-bold font-heading text-white leading-none mb-1">{completedTasksCount}</h3>
             <p className="text-[11px] text-text-secondary font-medium">Completed Tasks</p>
-          </div>
-        </div>
-
-        {/* 🌟 Focus Streak Metric Card */}
-        <div className="metrics-card glass border border-amber-500/25 bg-amber-500/5 p-5 flex items-center gap-4 hover:-translate-y-1 hover:border-amber-500/40 transition-all duration-300">
-          <div className="w-11 h-11 rounded-xl flex items-center justify-center text-xl bg-amber-500/20 text-amber-400 border border-amber-500/30">
-            🔥
-          </div>
-          <div>
-            <h3 className="text-xl font-extrabold font-heading text-white leading-none mb-1">{focusStreak} {focusStreak === 1 ? 'Day' : 'Days'}</h3>
-            <p className="text-[11px] text-amber-300 font-semibold">Focus Streak</p>
           </div>
         </div>
       </div>

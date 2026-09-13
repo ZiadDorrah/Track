@@ -291,18 +291,6 @@ function TaskCard({
             {elapsedTime > 0 ? formatTime(elapsedTime) : '0s logged'}
           </span>
         </div>
-        
-        {/* Quick Launch Pomodoro Focus */}
-        <button
-          onClick={() => {
-            const event = new CustomEvent('start-pomodoro-focus', { detail: { projectId, task } });
-            window.dispatchEvent(event);
-          }}
-          className="px-2 py-0.5 rounded bg-amber-500/10 hover:bg-amber-500/25 border border-amber-500/20 text-amber-400 hover:text-white text-[9px] font-bold cursor-pointer transition-all flex items-center gap-1"
-          title="Start Pomodoro Focus"
-        >
-          <i className="fa-solid fa-hourglass-start text-[8px]"></i> Focus
-        </button>
       </div>
 
       {/* Footer */}
