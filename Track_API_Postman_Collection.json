@@ -589,9 +589,37 @@
 								}
 							]
 						},
-						"description": "Partially updates a user's profile — every field is optional and only supplied fields are changed (`COALESCE` under the hood). **Important**: if you include `managerIds` in the body, it **fully replaces** that user's manager set (existing links not in the list are deleted first) — omit it entirely to leave manager relationships untouched, as this example does. Setting `isActive: false` immediately blocks that user from authenticating (checked in the login and session-lookup queries). **Admin only.**\n\n**Responses**\n- `200` — `{ \"message\": \"User updated successfully.\" }`\n- `404` — user ID not found\n- `403` — caller is not an admin"
+						"description": "Partially updates a user's profile — every field is optional and only supplied fields are changed (`COALESCE` under the hood). **Important**: if you include `managerIds` in the body, it **fully replaces** that user's manager set (existing links not in the list are deleted first) — omit it entirely to leave manager relationships untouched, as this example does. Setting `isActive: false` blocks that user immediately, not after their session naturally expires — the JWT `authenticate` middleware re-checks `is_active` fresh from the database on every request, even for a still-valid, unexpired access token. **Admin only.**\n\n**Self-lockout guard**: you cannot set `isActive: false` or `isAdmin: false` on your *own* account through this endpoint — it returns `400` instead, regardless of whether other admins exist. This exists because there's no password-reset/self-recovery flow yet; ask another admin to change your own account if needed.\n\n**Responses**\n- `200` — `{ \"message\": \"User updated successfully.\" }`\n- `400` — attempted to deactivate or de-admin your own account\n- `404` — user ID not found\n- `403` — caller is not an admin"
 					},
-					"response": []
+					"response": [
+						{
+							"name": "400 Bad Request - self-lockout blocked",
+							"originalRequest": {
+								"method": "PUT",
+								"header": [
+									{ "key": "Content-Type", "value": "application/json" }
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n    \"isActive\": false\n}"
+								},
+								"url": {
+									"raw": "{{baseUrl}}/api/admin/users/:id",
+									"host": ["{{baseUrl}}"],
+									"path": ["api", "admin", "users", ":id"],
+									"variable": [{ "key": "id", "value": "YOUR_OWN_USER_ID" }]
+								}
+							},
+							"status": "Bad Request",
+							"code": 400,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{ "key": "Content-Type", "value": "application/json; charset=utf-8" }
+							],
+							"cookie": [],
+							"body": "{\n    \"error\": \"You cannot remove your own admin privileges or deactivate your own account. Ask another administrator to do this for you.\"\n}"
+						}
+					]
 				},
 				{
 					"name": "Assign Manager (Admin)",
@@ -722,7 +750,7 @@
 					"response": []
 				}
 			],
-			"description": "Admin-only endpoints (403 for any non-admin session) for provisioning accounts and shaping the manager/employee hierarchy. Run **Provision Manager Account** and **Provision Employee Account** before **Assign Manager** — both earlier requests auto-populate `{{managerUserId}}`/`{{employeeUserId}}` via their test scripts."
+			"description": "Admin-only endpoints (403 for any non-admin session) for provisioning accounts and shaping the manager/employee hierarchy. Run **Provision Manager Account** and **Provision Employee Account** before **Assign Manager** — both earlier requests auto-populate `{{managerUserId}}`/`{{employeeUserId}}` via their test scripts.\n\nThese same endpoints now also power the in-app **Admin Console** (`/admin`, visible in the sidebar to admin accounts only) — no backend changes were needed for that UI to exist, since these routes were already `requireAdmin`-gated. One known gap either surface shares: `PUT /api/admin/users/:id` has no check preventing an admin from deactivating or de-admin'ing *themselves* — worth being careful with when testing the `isActive`/`isAdmin` fields against your own account, since there's no forgot-password/self-recovery flow yet."
 		},
 		{
 			"name": "Team & Hierarchy",

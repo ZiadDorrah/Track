@@ -7,7 +7,9 @@ if (!fs.existsSync(DATA_DIR)) {
   fs.mkdirSync(DATA_DIR, { recursive: true });
 }
 
-const DB_PATH = path.join(DATA_DIR, 'track.db');
+// Override lets tests (or any other caller) point at an isolated database
+// file instead of the real one this app runs on. Unset in normal operation.
+const DB_PATH = process.env.DB_PATH || path.join(DATA_DIR, 'track.db');
 const rawDb = new sqlite3.Database(DB_PATH);
 
 // Enable WAL mode and foreign key constraints

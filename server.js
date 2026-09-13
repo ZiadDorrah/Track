@@ -563,6 +563,10 @@ app.put('/api/admin/users/:id', requireAdmin, async (req, res) => {
       return res.status(404).json({ error: 'User not found.' });
     }
 
+    if (targetUserId === req.user.id && (isActive === false || isAdmin === false)) {
+      return res.status(400).json({ error: 'You cannot remove your own admin privileges or deactivate your own account. Ask another administrator to do this for you.' });
+    }
+
     await db.run(`
       UPDATE users
       SET email = COALESCE(?, email),
@@ -1848,14 +1852,21 @@ app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'dist', 'index.html'));
 });
 
-// Start Server
-db.initPromise.then(() => {
-  app.listen(PORT, () => {
-    console.log(`===============================================`);
-    console.log(` Track Multi-User Enterprise Server running at http://localhost:${PORT}`);
-    console.log(` SQLite Database initialized & WAL journal active.`);
-    console.log(`===============================================`);
+// Start Server - only when run directly (node server.js), not when required
+// as a module (e.g. by tests driving it through supertest's own ephemeral
+// server), so requiring this file never binds a real port or collides with
+// an already-running instance.
+if (require.main === module) {
+  db.initPromise.then(() => {
+    app.listen(PORT, () => {
+      console.log(`===============================================`);
+      console.log(` Track Multi-User Enterprise Server running at http://localhost:${PORT}`);
+      console.log(` SQLite Database initialized & WAL journal active.`);
+      console.log(`===============================================`);
+    });
+  }).catch(err => {
+    console.error('Fatal error during database startup:', err);
   });
-}).catch(err => {
-  console.error('Fatal error during database startup:', err);
-});
+}
+
+module.exports = app;

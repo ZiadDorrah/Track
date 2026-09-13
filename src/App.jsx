@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Routes, Route, useNavigate, useLocation, useParams } from 'react-router-dom';
+import { Routes, Route, useNavigate, useLocation, useParams, Navigate } from 'react-router-dom';
 import Auth from './components/Auth/Auth.jsx';
 import Dashboard from './components/Dashboard/Dashboard.jsx';
 import ProjectDetail from './components/ProjectDetail/ProjectDetail.jsx';
@@ -13,6 +13,7 @@ import GlobalSearch from './components/GlobalSearch/GlobalSearch.jsx';
 import PriorityMatrix from './components/PriorityMatrix/PriorityMatrix.jsx';
 import WeeklyReview from './components/WeeklyReview/WeeklyReview.jsx';
 import Analytics from './components/Analytics/Analytics.jsx';
+import AdminConsole from './components/Admin/AdminConsole.jsx';
 import { useCurrentUser } from './context/CurrentUserContext.jsx';
 import { playCompletionChime } from './utils/audio.js';
 
@@ -911,6 +912,24 @@ export default function App() {
             <i className="fa-solid fa-chart-column text-xs"></i> <span>Analytics</span>
           </button>
 
+          {user?.isAdmin && (
+            <button
+              onClick={() => navigate('/admin')}
+              className={`w-full flex items-center justify-between px-4 py-2.5 rounded-lg text-sm font-heading font-medium transition-all text-left cursor-pointer ${
+                location.pathname === '/admin'
+                  ? 'bg-amber-500 text-white shadow-[0_4px_15px_rgba(245,158,11,0.3)]'
+                  : 'text-amber-400 hover:text-white hover:bg-amber-500/10'
+              }`}
+            >
+              <div className="flex items-center gap-3">
+                <i className="fa-solid fa-user-shield text-xs"></i> <span>Admin Console</span>
+              </div>
+              <span className="text-[9px] bg-amber-500/30 text-amber-300 font-extrabold px-1.5 py-0.5 rounded-full border border-amber-500/40">
+                Admin
+              </span>
+            </button>
+          )}
+
           <button
             onClick={() => navigate('/settings')}
             className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm font-heading font-medium transition-all text-left cursor-pointer ${
@@ -1061,6 +1080,10 @@ export default function App() {
               escapeHTML={escapeHTML}
               showToast={showToast}
             />
+          } />
+
+          <Route path="/admin" element={
+            user?.isAdmin ? <AdminConsole showToast={showToast} /> : <Navigate to="/dashboard" replace />
           } />
 
           <Route path="/settings" element={
