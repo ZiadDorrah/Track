@@ -126,9 +126,60 @@ async function getEligibleAssignees(userId, projectId = null) {
   return Array.from(assigneesMap.values());
 }
 
+/**
+ * Every user a given user has a legitimate reason to see by name: self,
+ * recursive reports (any depth), recursive managers (any depth), co-members
+ * of any project they're in, and owners of projects they're a member of.
+ * Shared by the company directory and the KPI dashboard's workload redaction
+ * so both use the same visibility boundary.
+ */
+async function getVisibleCompanyUsers(userId) {
+  await db.initPromise;
+  const rows = await db.all(`
+    WITH RECURSIVE down(id) AS (
+      SELECT employee_id FROM manager_employee WHERE manager_id = ?
+      UNION
+      SELECT me.employee_id FROM manager_employee me JOIN down d ON me.manager_id = d.id
+    ),
+    up(id) AS (
+      SELECT manager_id FROM manager_employee WHERE employee_id = ?
+      UNION
+      SELECT me.manager_id FROM manager_employee me JOIN up u ON me.employee_id = u.id
+    )
+    SELECT DISTINCT u.id, u.username, u.email, u.display_name, u.job_title, u.is_admin
+    FROM users u
+    WHERE u.is_active = 1 AND (
+      u.id = ?
+      OR u.id IN (SELECT id FROM down)
+      OR u.id IN (SELECT id FROM up)
+      OR u.id IN (
+        SELECT pm2.user_id FROM project_members pm1
+        JOIN project_members pm2 ON pm1.project_id = pm2.project_id
+        WHERE pm1.user_id = ?
+      )
+      OR u.id IN (
+        SELECT p.owner_id FROM projects p
+        JOIN project_members pm ON pm.project_id = p.id
+        WHERE pm.user_id = ?
+      )
+    )
+    ORDER BY u.display_name ASC
+  `, [userId, userId, userId, userId, userId]);
+
+  return rows.map(u => ({
+    id: u.id,
+    username: u.username,
+    email: u.email || '',
+    displayName: u.display_name || u.username,
+    jobTitle: u.job_title || '',
+    isAdmin: Boolean(u.is_admin)
+  }));
+}
+
 module.exports = {
   getDirectReports,
   getRecursiveReports,
   getManagers,
-  getEligibleAssignees
+  getEligibleAssignees,
+  getVisibleCompanyUsers
 };

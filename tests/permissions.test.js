@@ -17,10 +17,6 @@ test('Auth & permissions - real HTTP requests against the actual routes, isolate
   await db.initPromise;
 
   await t.test('server refuses to start without a real JWT_SECRET', () => {
-    // This is the actual regression test for the hardcoded-fallback
-    // vulnerability that was found and fixed: a fresh process, in a
-    // throwaway directory, with JWT_SECRET deliberately unset, must exit
-    // non-zero rather than silently falling back to a known/guessable value.
     const scratchDb = path.join(os.tmpdir(), `track-startup-test-${crypto.randomBytes(6).toString('hex')}.db`);
     const result = spawnSync(process.execPath, ['-e', "require('./server.js')"], {
       cwd: path.join(__dirname, '..'),
@@ -75,7 +71,6 @@ test('Auth & permissions - real HTTP requests against the actual routes, isolate
       .send({ username: 'sneaky', password: 'WhateverPass123!' });
     assert.equal(res.status, 403, 'signup must be rejected once a user already exists');
 
-    // Prove it wasn't silently created despite the error.
     const loginAttempt = await request(app)
       .post('/api/auth/login')
       .send({ username: 'sneaky', password: 'WhateverPass123!' });
@@ -94,7 +89,6 @@ test('Auth & permissions - real HTTP requests against the actual routes, isolate
   const ids = {};
 
   await t.test('setup: a manager, their report, and an unrelated outsider', async () => {
-    // firstadmin plays the manager role for this scenario.
     const me = await request(app).get('/api/auth/me').set('Cookie', bootstrapCookies);
     ids.manager = me.body.user.id;
     managerCookies = bootstrapCookies;
@@ -149,6 +143,132 @@ test('Auth & permissions - real HTTP requests against the actual routes, isolate
     assert.equal(res.body[0].tasks[0].id, taskId);
   });
 
+  await t.test('Phase 12: Directory scoping on /api/users/all', async () => {
+    const adminRes = await request(app).get('/api/users/all').set('Cookie', managerCookies);
+    assert.equal(adminRes.status, 200);
+    assert.equal(adminRes.body.length, 3, 'admin sees all 3 users in directory');
+
+    const outsiderRes = await request(app).get('/api/users/all').set('Cookie', outsiderCookies);
+    assert.equal(outsiderRes.status, 200);
+    assert.equal(outsiderRes.body.length, 1, 'outsider sees only self in directory scoping');
+    assert.equal(outsiderRes.body[0].username, 'outsiderY');
+  });
+
+  await t.test('Phase 12: KPI Dashboard Anonymization for non-admin users', async () => {
+    const adminKpi = await request(app).get('/api/kpi/dashboard').set('Cookie', managerCookies);
+    assert.equal(adminKpi.status, 200);
+    const unredactedProject = adminKpi.body.projectHealthList.find(p => p.id === projectId);
+    assert.equal(unredactedProject.name, 'Confidential Project', 'admin sees unredacted project name');
+
+    const outsiderKpi = await request(app).get('/api/kpi/dashboard').set('Cookie', outsiderCookies);
+    assert.equal(outsiderKpi.status, 200);
+    // The real project id/name must not appear at all for an outsider - not
+    // just have its name swapped while the real id (a stable, trackable
+    // identifier) leaks through.
+    assert.equal(
+      outsiderKpi.body.projectHealthList.find(p => p.id === projectId),
+      undefined,
+      'the real project id must not be exposed to a non-admin who cannot access it'
+    );
+    const anonymizedEntry = outsiderKpi.body.projectHealthList.find(p => p.totalTasks === unredactedProject.totalTasks);
+    assert.ok(anonymizedEntry, 'the project still appears in the list, under a synthetic id');
+    assert.match(anonymizedEntry.name, /Workspace Project/, 'non-admin sees an anonymized project name');
+    assert.match(anonymizedEntry.id, /^anon-project-/, 'non-admin gets a synthetic id, not the real one');
+  });
+
+  let teamLeadCookies;
+  const skipLevelIds = {};
+
+  await t.test('Phase 12 fix: directory scoping is recursive, not direct-only', async () => {
+    const teamLead = await request(app)
+      .post('/api/admin/users')
+      .set('Cookie', managerCookies)
+      .send({ username: 'teamLeadA', password: 'Pass123!ABC' });
+    skipLevelIds.teamLead = teamLead.body.userId;
+
+    const reportB = await request(app)
+      .post('/api/admin/users')
+      .set('Cookie', managerCookies)
+      .send({ username: 'reportB', password: 'Pass123!ABC' });
+    skipLevelIds.reportB = reportB.body.userId;
+
+    const reportC = await request(app)
+      .post('/api/admin/users')
+      .set('Cookie', managerCookies)
+      .send({ username: 'reportC', password: 'Pass123!ABC' });
+    skipLevelIds.reportC = reportC.body.userId;
+
+    await request(app).post('/api/admin/managers').set('Cookie', managerCookies)
+      .send({ managerId: skipLevelIds.teamLead, employeeId: skipLevelIds.reportB });
+    await request(app).post('/api/admin/managers').set('Cookie', managerCookies)
+      .send({ managerId: skipLevelIds.reportB, employeeId: skipLevelIds.reportC });
+
+    const teamLeadLogin = await request(app).post('/api/auth/login').send({ username: 'teamLeadA', password: 'Pass123!ABC' });
+    teamLeadCookies = extractCookies(teamLeadLogin);
+
+    const directory = await request(app).get('/api/users/all').set('Cookie', teamLeadCookies);
+    assert.equal(directory.status, 200);
+    const directoryIds = directory.body.map(u => u.id);
+    assert.ok(directoryIds.includes(skipLevelIds.reportB), 'teamLeadA sees their direct report');
+    assert.ok(directoryIds.includes(skipLevelIds.reportC), 'teamLeadA also sees the skip-level report (reportB\'s own report) - recursive, not direct-only');
+  });
+
+  await t.test('Phase 12 fix: KPI memberWorkloadList no longer redacts a name the caller can already see', async () => {
+    const proj = await request(app).post('/api/projects').set('Cookie', teamLeadCookies).send({ name: 'TeamLead Project' });
+    const task = await request(app)
+      .post(`/api/projects/${proj.body.id}/tasks`)
+      .set('Cookie', teamLeadCookies)
+      .send({ title: 'Report task', assigneeId: skipLevelIds.reportB });
+    assert.equal(task.status, 201);
+
+    const teamLeadKpi = await request(app).get('/api/kpi/dashboard').set('Cookie', teamLeadCookies);
+    assert.equal(teamLeadKpi.status, 200);
+    const reportEntry = teamLeadKpi.body.memberWorkloadList.find(m => m.userId === skipLevelIds.reportB);
+    assert.ok(reportEntry, 'teamLeadA (non-admin) can find their direct report\'s real entry by real userId');
+    assert.equal(reportEntry.displayName, 'ReportB', 'a manager sees their own direct report\'s real name, not "Team Member N"');
+
+    const outsiderKpi = await request(app).get('/api/kpi/dashboard').set('Cookie', outsiderCookies);
+    const outsiderEntry = outsiderKpi.body.memberWorkloadList.find(m => m.userId === skipLevelIds.reportB);
+    assert.equal(outsiderEntry, undefined, 'someone with no relationship to reportB must not see their real userId at all');
+    const outsiderAnon = outsiderKpi.body.memberWorkloadList.find(m => /^anon-member-/.test(m.userId));
+    assert.ok(outsiderAnon, 'reportB still appears to the outsider, but under a synthetic id/name');
+  });
+
+  await t.test('Phase 12 fix: bulk assignee action rejects an invalid target instead of silently no-oping', async () => {
+    const proj = await request(app).post('/api/projects').set('Cookie', teamLeadCookies).send({ name: 'Bulk Assignee Project' });
+    const task = await request(app)
+      .post(`/api/projects/${proj.body.id}/tasks`)
+      .set('Cookie', teamLeadCookies)
+      .send({ title: 'Reassign me', assigneeId: skipLevelIds.reportB });
+
+    const bulk = await request(app)
+      .post(`/api/projects/${proj.body.id}/tasks/bulk`)
+      .set('Cookie', teamLeadCookies)
+      .send({ taskIds: [task.body.id], action: 'assignee', value: '00000000-0000-0000-0000-000000000000' });
+    assert.equal(bulk.status, 400, 'an invalid bulk-assignee target must be rejected, not silently accepted');
+
+    const stillAssigned = await request(app).get('/api/projects').set('Cookie', teamLeadCookies);
+    const bulkProject = stillAssigned.body.find(p => p.id === proj.body.id);
+    const unchangedTask = bulkProject.tasks.find(t => t.id === task.body.id);
+    assert.equal(unchangedTask.assigneeId, skipLevelIds.reportB, 'the original assignee must be untouched after the rejected bulk call');
+  });
+
+  await t.test('Phase 13 fix: GET /api/notifications includes isRead on every item', async () => {
+    const before = await request(app).get('/api/notifications').set('Cookie', employeeCookies);
+    assert.equal(before.status, 200);
+    assert.ok(before.body.notifications.length > 0, 'the report should have at least the task_assigned notification from earlier');
+    for (const n of before.body.notifications) {
+      assert.equal(typeof n.isRead, 'boolean', `notification ${n.id} must have a boolean isRead field`);
+    }
+    const unreadOne = before.body.notifications.find(n => n.isRead === false);
+    assert.ok(unreadOne, 'at least one notification should still be unread at this point');
+
+    await request(app).put(`/api/notifications/${unreadOne.id}/read`).set('Cookie', employeeCookies);
+    const after = await request(app).get('/api/notifications').set('Cookie', employeeCookies);
+    const updated = after.body.notifications.find(n => n.id === unreadOne.id);
+    assert.equal(updated.isRead, true, 'isRead must flip to true after marking read, not just the unreadCount summary');
+  });
+
   await t.test('an unrelated outsider sees nothing at all', async () => {
     const res = await request(app).get('/api/projects').set('Cookie', outsiderCookies);
     assert.equal(res.status, 200);
@@ -176,13 +296,10 @@ test('Auth & permissions - real HTTP requests against the actual routes, isolate
       .send({ isAdmin: false });
     assert.equal(demoteSelf.status, 400, 'self-demotion must be rejected');
 
-    // Confirm it wasn't silently applied anyway - the admin must still be
-    // able to authenticate and act as themselves afterward.
     const stillWorks = await request(app).get('/api/auth/me').set('Cookie', managerCookies);
     assert.equal(stillWorks.status, 200);
     assert.equal(stillWorks.body.user.isAdmin, true, 'still an admin after the rejected attempt');
 
-    // A real change to someone else must still work normally.
     const editOther = await request(app)
       .put(`/api/admin/users/${ids.report}`)
       .set('Cookie', managerCookies)

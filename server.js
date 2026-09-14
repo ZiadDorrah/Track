@@ -7,7 +7,7 @@ const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
 const { v4: uuidv4 } = require('uuid');
 const db = require('./server/db');
-const { getDirectReports, getRecursiveReports, getManagers, getEligibleAssignees } = require('./server/lib/hierarchy');
+const { getDirectReports, getRecursiveReports, getManagers, getEligibleAssignees, getVisibleCompanyUsers } = require('./server/lib/hierarchy');
 
 const app = express();
 const PORT = process.env.PORT || 3005;
@@ -233,7 +233,10 @@ async function isValidAssignee(assigneeId, assignerId, projectId) {
   return false;
 }
 
-// Notification Creation Helper
+// Real-time SSE Clients Store (userId -> Set<res>)
+const sseClients = new Map();
+
+// Notification Creation Helper (Persists to DB & Pushes via SSE)
 async function createNotification({ userId, type, title, body, entityType = null, entityId = null, actorId = null }) {
   if (!userId) return;
   if (actorId && actorId === userId) return;
@@ -246,6 +249,36 @@ async function createNotification({ userId, type, title, body, entityType = null
       INSERT INTO notifications (id, user_id, type, title, body, entity_type, entity_id, actor_id, is_read, created_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?)
     `, [id, userId, type, title, body, entityType, entityId, actorId, createdAt]);
+
+    // Push real-time event if user has an active SSE stream connection
+    if (sseClients.has(userId)) {
+      let actorName = 'System';
+      if (actorId) {
+        const actor = await db.get('SELECT display_name, username FROM users WHERE id = ?', [actorId]);
+        if (actor) actorName = actor.display_name || actor.username;
+      }
+
+      const notifPayload = JSON.stringify({
+        type: 'notification',
+        notification: {
+          id,
+          type,
+          title,
+          body,
+          entityType,
+          entityId,
+          actorName,
+          isRead: false,
+          createdAt
+        }
+      });
+
+      for (const clientRes of sseClients.get(userId)) {
+        try {
+          clientRes.write(`data: ${notifPayload}\n\n`);
+        } catch (e) {}
+      }
+    }
   } catch (err) {
     console.error('Create notification error:', err);
   }
@@ -702,15 +735,26 @@ app.get('/api/users/me/managers', authenticate, async (req, res) => {
   }
 });
 
-// Get all active users in company (for project member management)
+// Get active users in company (scoped to reporting chain & shared project members for non-admins)
 app.get('/api/users/all', authenticate, async (req, res) => {
   try {
-    const users = await db.all(`
-      SELECT id, username, display_name as displayName, job_title as jobTitle, email
-      FROM users
-      WHERE is_active = 1
-      ORDER BY display_name ASC
-    `);
+    const me = req.user.id;
+    let users;
+
+    if (req.user.isAdmin) {
+      users = await db.all(`
+        SELECT id, username, display_name as displayName, job_title as jobTitle, email
+        FROM users
+        WHERE is_active = 1
+        ORDER BY display_name ASC
+      `);
+    } else {
+      // Recursive, not direct-only: includes skip-level reports/managers via
+      // getVisibleCompanyUsers's WITH RECURSIVE traversal, matching the
+      // boundary already used by /api/users/me/team/all and /api/reports/manager.
+      users = await getVisibleCompanyUsers(me);
+    }
+
     res.json(users.map(u => ({
       id: u.id,
       username: u.username,
@@ -1233,7 +1277,43 @@ app.get('/api/notifications', authenticate, async (req, res) => {
   }
 });
 
-// Mark single notification as read
+// Stream real-time notifications via Server-Sent Events (SSE)
+app.get('/api/notifications/stream', authenticate, (req, res) => {
+  const userId = req.user.id;
+
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders();
+
+  if (!sseClients.has(userId)) {
+    sseClients.set(userId, new Set());
+  }
+  sseClients.get(userId).add(res);
+
+  // Send connection confirmation event
+  res.write(`data: ${JSON.stringify({ type: 'connected' })}\n\n`);
+
+  // Periodic keep-alive so idle-connection timeouts (proxies, load balancers)
+  // don't silently drop the stream without the client's EventSource noticing.
+  const heartbeat = setInterval(() => {
+    try {
+      res.write(': heartbeat\n\n');
+    } catch (e) {}
+  }, 25000);
+
+  req.on('close', () => {
+    clearInterval(heartbeat);
+    if (sseClients.has(userId)) {
+      sseClients.get(userId).delete(res);
+      if (sseClients.get(userId).size === 0) {
+        sseClients.delete(userId);
+      }
+    }
+  });
+});
+
+// Get notifications for current user
 app.put('/api/notifications/:id/read', authenticate, async (req, res) => {
   try {
     await db.run('UPDATE notifications SET is_read = 1 WHERE id = ? AND user_id = ?', [req.params.id, req.user.id]);
@@ -1296,7 +1376,32 @@ app.get('/api/kpi/dashboard', authenticate, async (req, res) => {
     const totalTimeLoggedSeconds = allTasks.reduce((sum, t) => sum + (t.time_logged || 0), 0);
 
     // Project Health Status Breakdown
-    const projectHealthList = projects.map(p => {
+    const me = req.user.id;
+    const isUserAdmin = Boolean(req.user.isAdmin);
+
+    const userAccessibleProjectIds = new Set(
+      (await db.all(`
+        SELECT p.id FROM projects p
+        LEFT JOIN project_members pm ON pm.project_id = p.id
+        WHERE p.owner_id = ? OR pm.user_id = ?
+      `, [me, me])).map(p => p.id)
+    );
+
+    // Same visibility boundary as GET /api/users/all, so a caller never sees
+    // a name redacted here that they can already see by name elsewhere.
+    const visibleUserIds = new Set((await getVisibleCompanyUsers(me)).map(u => u.id));
+    visibleUserIds.add(me);
+
+    function shuffled(arr) {
+      const a = arr.slice();
+      for (let i = a.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [a[i], a[j]] = [a[j], a[i]];
+      }
+      return a;
+    }
+
+    const projectHealthRows = projects.map(p => {
       const pTasks = allTasks.filter(t => t.project_id === p.id);
       const pTotal = pTasks.length;
       const pDone = pTasks.filter(t => t.status === 'done').length;
@@ -1317,9 +1422,24 @@ app.get('/api/kpi/dashboard', authenticate, async (req, res) => {
         completedTasks: pDone,
         overdueTasks: pOverdue,
         completionPct: pPct,
-        health
+        health,
+        isAccessible: isUserAdmin || userAccessibleProjectIds.has(p.id)
       };
     });
+
+    // Non-admins get real id/name only for projects they can access. Projects
+    // they can't are given a synthetic id/name (not just a redacted name) and
+    // shuffled each request - the real UUID was previously exposed unredacted
+    // regardless of the name swap, letting a caller track a specific hidden
+    // project's stats across repeated calls even without ever learning its name.
+    const projectHealthList = [
+      ...projectHealthRows.filter(p => p.isAccessible).map(({ isAccessible, ...rest }) => rest),
+      ...shuffled(projectHealthRows.filter(p => !p.isAccessible)).map(({ isAccessible, ...rest }, idx) => ({
+        ...rest,
+        id: `anon-project-${idx + 1}`,
+        name: `Workspace Project ${idx + 1}`
+      }))
+    ];
 
     // Team Workload Distribution
     const memberWorkloadMap = {};
@@ -1349,7 +1469,18 @@ app.get('/api/kpi/dashboard', authenticate, async (req, res) => {
       memberWorkloadMap[uid].timeLoggedSeconds += (t.time_logged || 0);
     }
 
-    const memberWorkloadList = Object.values(memberWorkloadMap).sort((a, b) => b.totalTasks - a.totalTasks);
+    // Sort first, then label - so "Team Member N" matches the row's actual
+    // position in the array the client receives, not its pre-sort insertion order.
+    let anonMemberCounter = 0;
+    const memberWorkloadList = Object.values(memberWorkloadMap)
+      .sort((a, b) => b.totalTasks - a.totalTasks)
+      .map(m => {
+        if (isUserAdmin || visibleUserIds.has(m.userId)) {
+          return m;
+        }
+        anonMemberCounter += 1;
+        return { ...m, userId: `anon-member-${anonMemberCounter}`, displayName: `Team Member ${anonMemberCounter}` };
+      });
 
     res.json({
       totalProjects: projects.length,
@@ -1643,13 +1774,47 @@ app.post('/api/projects/:projectId/tasks/bulk', authenticate, async (req, res) =
     } else if (action === 'status') {
       const now = new Date().toISOString();
       for (const tId of taskIds) {
-        const task = await db.get('SELECT status FROM tasks WHERE id = ?', [tId]);
+        const task = await db.get('SELECT id, title, status, created_by_id FROM tasks WHERE id = ? AND project_id = ?', [tId, projectId]);
         if (task) {
           const completedAt = value === 'done' ? (task.status !== 'done' ? now : undefined) : null;
           if (completedAt !== undefined) {
             await db.run('UPDATE tasks SET status = ?, completed_at = ? WHERE id = ? AND project_id = ?', [value, completedAt, tId, projectId]);
           } else {
             await db.run('UPDATE tasks SET status = ? WHERE id = ? AND project_id = ?', [value, tId, projectId]);
+          }
+
+          if (value === 'done' && task.status !== 'done' && task.created_by_id !== me) {
+            await createNotification({
+              userId: task.created_by_id,
+              actorId: me,
+              type: 'task_completed',
+              title: 'Task Completed',
+              body: `Task "${task.title}" was marked completed by ${req.user.displayName || req.user.username}.`,
+              entityType: 'project',
+              entityId: projectId
+            });
+          }
+        }
+      }
+    } else if (action === 'assignee') {
+      const validAssignee = await isValidAssignee(value, me, projectId);
+      if (!validAssignee) {
+        return res.status(400).json({ error: 'Invalid assignee: must be a project member or your direct report.' });
+      }
+      for (const tId of taskIds) {
+        const task = await db.get('SELECT id, title, assignee_id FROM tasks WHERE id = ? AND project_id = ?', [tId, projectId]);
+        if (task) {
+          await db.run('UPDATE tasks SET assignee_id = ? WHERE id = ? AND project_id = ?', [value, tId, projectId]);
+          if (value && value !== task.assignee_id && value !== me) {
+            await createNotification({
+              userId: value,
+              actorId: me,
+              type: 'task_assigned',
+              title: 'Task Assigned to You',
+              body: `Task "${task.title}" was assigned to you.`,
+              entityType: 'project',
+              entityId: projectId
+            });
           }
         }
       }

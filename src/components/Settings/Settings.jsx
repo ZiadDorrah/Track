@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import './Settings.css';
 
 export default function Settings({
@@ -11,6 +11,20 @@ export default function Settings({
   completionSound = true,
   onCompletionSoundChange
 }) {
+  const [notificationPermission, setNotificationPermission] = useState(
+    window.Notification ? window.Notification.permission : 'unsupported'
+  );
+
+  const requestNotificationPermission = async () => {
+    if (!window.Notification) return;
+    try {
+      const perm = await window.Notification.requestPermission();
+      setNotificationPermission(perm);
+    } catch (err) {
+      console.error('Failed to request notification permission:', err);
+    }
+  };
+
   const accents = [
     { id: 'violet', label: 'Violet', color: 'background: hsl(265, 89%, 65%);', bgClass: 'bg-[#8b5cf6]' },
     { id: 'teal', label: 'Teal', color: 'background: hsl(175, 89%, 50%);', bgClass: 'bg-[#14b8a6]' },
@@ -24,7 +38,7 @@ export default function Settings({
     <div className="animate-fade-in max-w-4xl">
       <div className="mb-8">
         <h1 className="text-3xl font-extrabold font-heading text-white tracking-tight">System Settings</h1>
-        <p className="text-sm text-text-secondary mt-1">Manage server configuration, sound feedback, theme appearance, and boot integration.</p>
+        <p className="text-sm text-text-secondary mt-1">Manage server configuration, sound feedback, real-time push notifications, and theme appearance.</p>
       </div>
 
       <div className="glass border border-white/6 p-8 flex flex-col gap-6">
@@ -92,7 +106,37 @@ export default function Settings({
           </div>
         </div>
 
+        <hr className="border-t border-white/6" />
 
+        {/* 🖥️ Desktop Browser Push Notifications */}
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+          <div className="flex-1">
+            <h3 className="text-base font-semibold font-heading text-white flex items-center gap-2">
+              <i className="fa-solid fa-desktop text-accent"></i> Desktop Browser Push Notifications
+            </h3>
+            <p className="text-xs text-text-secondary mt-1 max-w-xl">
+              Receive native desktop notifications when tasks are assigned or completed while the application tab is in the background.
+            </p>
+          </div>
+          <div className="flex-shrink-0">
+            {notificationPermission === 'granted' ? (
+              <span className="px-3 py-1.5 rounded-xl bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 text-xs font-bold flex items-center gap-1.5">
+                <i className="fa-solid fa-circle-check"></i> Enabled
+              </span>
+            ) : notificationPermission === 'denied' ? (
+              <span className="px-3 py-1.5 rounded-xl bg-rose-500/15 text-rose-400 border border-rose-500/30 text-xs font-bold flex items-center gap-1.5">
+                <i className="fa-solid fa-circle-xmark"></i> Blocked by Browser
+              </span>
+            ) : (
+              <button
+                onClick={requestNotificationPermission}
+                className="px-4 py-2 rounded-xl bg-accent hover:bg-accent-hover text-white text-xs font-bold shadow-lg shadow-accent/20 cursor-pointer transition-all flex items-center gap-1.5"
+              >
+                <i className="fa-solid fa-bell-ring"></i> Enable Push Alerts
+              </button>
+            )}
+          </div>
+        </div>
 
         <hr className="border-t border-white/6" />
 

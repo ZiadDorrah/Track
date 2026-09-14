@@ -2,7 +2,7 @@
 	"info": {
 		"_postman_id": "8c44b931-e129-4d64-9640-bd4465494d45",
 		"name": "Track. Enterprise API Collection",
-		"description": "API collection for the Track Multi-User Enterprise Task Tracker, backed by SQLite.\n\n**Auth model**: cookie-based, now JWT + refresh token (`access_token` short-lived JWT, `refresh_token` opaque server-side token, plus a `session_token` backward-compat duplicate) — all httpOnly. Postman's built-in cookie jar handles all of this automatically once you run **Login** — no manual header wiring needed, and **Refresh Access Token** is rarely needed manually since `authenticate` auto-refreshes on an expired access token anyway. There is no Bearer/API-key auth in this API.\n\n**Fixed: JWT signing secret vulnerability.** `server.js`'s `JWT_SECRET` previously fell back to a hardcoded public string when unset, letting anyone forge a valid token for any account (verified live, including creating a rogue admin with zero credentials). That fallback is gone — the server now refuses to start (exit code 1) unless `JWT_SECRET` is set to a real value of at least 32 characters, loaded from a local `.env` file (see `.env.example`). Re-verified live that a token forged with the old hardcoded string is now rejected (`401`, cookies cleared).\n\n**Roles**: every user is either a regular user or an admin (`isAdmin`). \"Manager\" and \"employee\" are not fixed roles — they're derived from rows in the `manager_employee` table, so any user can be a manager of some people and a report of others. Endpoints under **Admin (User & Hierarchy)** require `isAdmin = true` on the calling session (403 otherwise); endpoints under **Team & Hierarchy** just need an authenticated session (no admin flag), since they only ever return data scoped to the caller; all other endpoints likewise just require an authenticated session (401 otherwise).\n\n**Known gaps, documented on their requests rather than hidden**: bulk task status changes don't trigger *per-task* `task_assigned`/`task_completed` notifications (only single-task updates do) — though bulk operations correctly do trigger the project-wide completion notification if they happen to finish the project. `GET /api/kpi/dashboard` (Analytics & KPIs) is genuinely org-wide by design — every project counts for every caller — but that means its `memberWorkloadList`/`projectHealthList` sections expose every project's name and every person's task/time totals to every employee, not just people you share a project with. Neither is a crash risk — see each request's description for specifics.\n\n**Self-signup is locked down**: `POST /api/auth/signup` only succeeds while the system has zero users (it creates the first account as admin). After that it always returns 403 — new accounts must be created via **Provision User (Admin)**.\n\n**Suggested run order** (this collection is wired for it via test scripts that auto-populate collection variables like `{{projectId}}`, `{{taskId}}`, `{{managerUserId}}`, `{{employeeUserId}}`, `{{templateId}}` — no manual copy-pasting of IDs required):\n1. Authentication → Sign Up (only if the DB is empty) → Login\n2. Admin → provision a manager + an employee, link them\n3. Team & Hierarchy → confirm the link (Get My Direct Reports / Get My Managers), try the rollups\n4. Projects → create a project (as the logged-in admin/manager)\n5. Tasks → create/update/bulk-update a task, assigning it to the employee\n6. Notifications → run **Get My Notifications** as the employee to see the auto-generated `task_assigned` notification from step 5\n7. Analytics & KPIs → check the dashboard as both users to see the org-wide-labeling gap firsthand\n8. Templates → create a template, spin up a project from it\n\nWithin each folder, non-destructive requests are ordered first; **Delete**/**Unassign** requests are last and destructive — run them only once you're done exploring that folder.",
+		"description": "API collection for the Track Multi-User Enterprise Task Tracker, backed by SQLite.\n\n**Auth model**: cookie-based, now JWT + refresh token (`access_token` short-lived JWT, `refresh_token` opaque server-side token, plus a `session_token` backward-compat duplicate) — all httpOnly. Postman's built-in cookie jar handles all of this automatically once you run **Login** — no manual header wiring needed, and **Refresh Access Token** is rarely needed manually since `authenticate` auto-refreshes on an expired access token anyway. There is no Bearer/API-key auth in this API.\n\n**Fixed: JWT signing secret vulnerability.** `server.js`'s `JWT_SECRET` previously fell back to a hardcoded public string when unset, letting anyone forge a valid token for any account (verified live, including creating a rogue admin with zero credentials). That fallback is gone — the server now refuses to start (exit code 1) unless `JWT_SECRET` is set to a real value of at least 32 characters, loaded from a local `.env` file (see `.env.example`). Re-verified live that a token forged with the old hardcoded string is now rejected (`401`, cookies cleared).\n\n**Roles**: every user is either a regular user or an admin (`isAdmin`). \"Manager\" and \"employee\" are not fixed roles — they're derived from rows in the `manager_employee` table, so any user can be a manager of some people and a report of others. Endpoints under **Admin (User & Hierarchy)** require `isAdmin = true` on the calling session (403 otherwise); endpoints under **Team & Hierarchy** just need an authenticated session (no admin flag), since they only ever return data scoped to the caller; all other endpoints likewise just require an authenticated session (401 otherwise).\n\n**Known gaps, documented on their requests rather than hidden**: `GET /api/kpi/dashboard`'s underlying counts remain intentionally org-wide by design (see that request's description) — that's a deliberate scope decision, not a bug. Everything else found in earlier rounds — direct-only directory scoping, KPI anonymization leaking real ids and over-redacting visible people, the bulk `assignee` silent no-op, the missing `isRead` field, and the SSE stream's lack of a heartbeat and its client disabling auto-reconnect — has been fixed and re-verified live; see each request's description for what changed. None of these were ever crash risks.\n\n**Self-signup is locked down**: `POST /api/auth/signup` only succeeds while the system has zero users (it creates the first account as admin). After that it always returns 403 — new accounts must be created via **Provision User (Admin)**.\n\n**Suggested run order** (this collection is wired for it via test scripts that auto-populate collection variables like `{{projectId}}`, `{{taskId}}`, `{{managerUserId}}`, `{{employeeUserId}}`, `{{templateId}}` — no manual copy-pasting of IDs required):\n1. Authentication → Sign Up (only if the DB is empty) → Login\n2. Admin → provision a manager + an employee, link them\n3. Team & Hierarchy → confirm the link (Get My Direct Reports / Get My Managers), try the rollups\n4. Projects → create a project (as the logged-in admin/manager)\n5. Tasks → create/update/bulk-update a task, assigning it to the employee\n6. Notifications → run **Get My Notifications** as the employee to see the auto-generated `task_assigned` notification from step 5\n7. Analytics & KPIs → check the dashboard as an admin vs. a non-admin to see the anonymization firsthand\n8. Templates → create a template, spin up a project from it\n\nWithin each folder, non-destructive requests are ordered first; **Delete**/**Unassign** requests are last and destructive — run them only once you're done exploring that folder.",
 		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
 	},
 	"item": [
@@ -35,7 +35,10 @@
 					"request": {
 						"method": "POST",
 						"header": [
-							{ "key": "Content-Type", "value": "application/json" }
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
 						],
 						"body": {
 							"mode": "raw",
@@ -65,7 +68,10 @@
 							"originalRequest": {
 								"method": "POST",
 								"header": [
-									{ "key": "Content-Type", "value": "application/json" }
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
 								],
 								"body": {
 									"mode": "raw",
@@ -73,15 +79,24 @@
 								},
 								"url": {
 									"raw": "{{baseUrl}}/api/auth/signup",
-									"host": ["{{baseUrl}}"],
-									"path": ["api", "auth", "signup"]
+									"host": [
+										"{{baseUrl}}"
+									],
+									"path": [
+										"api",
+										"auth",
+										"signup"
+									]
 								}
 							},
 							"status": "Created",
 							"code": 201,
 							"_postman_previewlanguage": "json",
 							"header": [
-								{ "key": "Content-Type", "value": "application/json; charset=utf-8" }
+								{
+									"key": "Content-Type",
+									"value": "application/json; charset=utf-8"
+								}
 							],
 							"cookie": [],
 							"body": "{\n    \"message\": \"System administrator registered successfully!\"\n}"
@@ -91,7 +106,10 @@
 							"originalRequest": {
 								"method": "POST",
 								"header": [
-									{ "key": "Content-Type", "value": "application/json" }
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
 								],
 								"body": {
 									"mode": "raw",
@@ -99,15 +117,24 @@
 								},
 								"url": {
 									"raw": "{{baseUrl}}/api/auth/signup",
-									"host": ["{{baseUrl}}"],
-									"path": ["api", "auth", "signup"]
+									"host": [
+										"{{baseUrl}}"
+									],
+									"path": [
+										"api",
+										"auth",
+										"signup"
+									]
 								}
 							},
 							"status": "Forbidden",
 							"code": 403,
 							"_postman_previewlanguage": "json",
 							"header": [
-								{ "key": "Content-Type", "value": "application/json; charset=utf-8" }
+								{
+									"key": "Content-Type",
+									"value": "application/json; charset=utf-8"
+								}
 							],
 							"cookie": [],
 							"body": "{\n    \"error\": \"Self-signup is disabled. New user accounts must be provisioned by an administrator.\"\n}"
@@ -139,7 +166,10 @@
 					"request": {
 						"method": "POST",
 						"header": [
-							{ "key": "Content-Type", "value": "application/json" }
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
 						],
 						"body": {
 							"mode": "raw",
@@ -169,7 +199,10 @@
 							"originalRequest": {
 								"method": "POST",
 								"header": [
-									{ "key": "Content-Type", "value": "application/json" }
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
 								],
 								"body": {
 									"mode": "raw",
@@ -177,18 +210,36 @@
 								},
 								"url": {
 									"raw": "{{baseUrl}}/api/auth/login",
-									"host": ["{{baseUrl}}"],
-									"path": ["api", "auth", "login"]
+									"host": [
+										"{{baseUrl}}"
+									],
+									"path": [
+										"api",
+										"auth",
+										"login"
+									]
 								}
 							},
 							"status": "OK",
 							"code": 200,
 							"_postman_previewlanguage": "json",
 							"header": [
-								{ "key": "Content-Type", "value": "application/json; charset=utf-8" },
-								{ "key": "Set-Cookie", "value": "access_token=<jwt>; Max-Age=1800; Path=/; HttpOnly; SameSite=Lax" },
-									{ "key": "Set-Cookie", "value": "refresh_token=<hex>; Max-Age=604800; Path=/; HttpOnly; SameSite=Lax" },
-									{ "key": "Set-Cookie", "value": "session_token=<hex>; Max-Age=604800; Path=/; HttpOnly; SameSite=Lax" }
+								{
+									"key": "Content-Type",
+									"value": "application/json; charset=utf-8"
+								},
+								{
+									"key": "Set-Cookie",
+									"value": "access_token=<jwt>; Max-Age=1800; Path=/; HttpOnly; SameSite=Lax"
+								},
+								{
+									"key": "Set-Cookie",
+									"value": "refresh_token=<hex>; Max-Age=604800; Path=/; HttpOnly; SameSite=Lax"
+								},
+								{
+									"key": "Set-Cookie",
+									"value": "session_token=<hex>; Max-Age=604800; Path=/; HttpOnly; SameSite=Lax"
+								}
 							],
 							"cookie": [],
 							"body": "{\n    \"message\": \"Login successful!\",\n    \"user\": {\n        \"id\": \"1294e8df-18ed-402a-8080-f94be8679b6b\",\n        \"username\": \"admin\",\n        \"email\": \"admin@company.local\",\n        \"displayName\": \"System Administrator\",\n        \"jobTitle\": \"Administrator\",\n        \"isAdmin\": true\n    }\n}"
@@ -198,7 +249,10 @@
 							"originalRequest": {
 								"method": "POST",
 								"header": [
-									{ "key": "Content-Type", "value": "application/json" }
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
 								],
 								"body": {
 									"mode": "raw",
@@ -206,15 +260,24 @@
 								},
 								"url": {
 									"raw": "{{baseUrl}}/api/auth/login",
-									"host": ["{{baseUrl}}"],
-									"path": ["api", "auth", "login"]
+									"host": [
+										"{{baseUrl}}"
+									],
+									"path": [
+										"api",
+										"auth",
+										"login"
+									]
 								}
 							},
 							"status": "Unauthorized",
 							"code": 401,
 							"_postman_previewlanguage": "json",
 							"header": [
-								{ "key": "Content-Type", "value": "application/json; charset=utf-8" }
+								{
+									"key": "Content-Type",
+									"value": "application/json; charset=utf-8"
+								}
 							],
 							"cookie": [],
 							"body": "{\n    \"error\": \"Invalid username or password.\"\n}"
@@ -228,8 +291,14 @@
 						"header": [],
 						"url": {
 							"raw": "{{baseUrl}}/api/auth/refresh",
-							"host": ["{{baseUrl}}"],
-							"path": ["api", "auth", "refresh"]
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"auth",
+								"refresh"
+							]
 						},
 						"description": "Exchanges a valid `refresh_token` (or the backward-compat `session_token`) cookie for a freshly-minted `access_token` cookie, without needing the username/password again. This is also called automatically by `authenticate` itself when a request arrives with an expired/missing access token but a still-valid refresh token — so in normal use you rarely need to call this endpoint directly; it exists mainly for a client to proactively refresh before the 30-minute access token expires.\n\n**Responses**\n- `200` — `{ \"message\": \"Token refreshed successfully.\" }`, sets a new `access_token` cookie\n- `401` — `{ \"error\": \"Refresh token missing.\" }` (no refresh cookie sent) or `{ \"error\": \"Invalid or expired refresh token.\" }` (revoked, e.g. by logout, or past its 7-day expiry)"
 					},
@@ -241,15 +310,24 @@
 								"header": [],
 								"url": {
 									"raw": "{{baseUrl}}/api/auth/refresh",
-									"host": ["{{baseUrl}}"],
-									"path": ["api", "auth", "refresh"]
+									"host": [
+										"{{baseUrl}}"
+									],
+									"path": [
+										"api",
+										"auth",
+										"refresh"
+									]
 								}
 							},
 							"status": "Unauthorized",
 							"code": 401,
 							"_postman_previewlanguage": "json",
 							"header": [
-								{ "key": "Content-Type", "value": "application/json; charset=utf-8" }
+								{
+									"key": "Content-Type",
+									"value": "application/json; charset=utf-8"
+								}
 							],
 							"cookie": [],
 							"body": "{\n    \"error\": \"Invalid or expired refresh token.\"\n}"
@@ -282,15 +360,24 @@
 								"header": [],
 								"url": {
 									"raw": "{{baseUrl}}/api/auth/me",
-									"host": ["{{baseUrl}}"],
-									"path": ["api", "auth", "me"]
+									"host": [
+										"{{baseUrl}}"
+									],
+									"path": [
+										"api",
+										"auth",
+										"me"
+									]
 								}
 							},
 							"status": "OK",
 							"code": 200,
 							"_postman_previewlanguage": "json",
 							"header": [
-								{ "key": "Content-Type", "value": "application/json; charset=utf-8" }
+								{
+									"key": "Content-Type",
+									"value": "application/json; charset=utf-8"
+								}
 							],
 							"cookie": [],
 							"body": "{\n    \"user\": {\n        \"id\": \"1294e8df-18ed-402a-8080-f94be8679b6b\",\n        \"username\": \"admin\",\n        \"email\": \"admin@company.local\",\n        \"displayName\": \"System Administrator\",\n        \"jobTitle\": \"Administrator\",\n        \"isAdmin\": true\n    }\n}"
@@ -302,15 +389,24 @@
 								"header": [],
 								"url": {
 									"raw": "{{baseUrl}}/api/auth/me",
-									"host": ["{{baseUrl}}"],
-									"path": ["api", "auth", "me"]
+									"host": [
+										"{{baseUrl}}"
+									],
+									"path": [
+										"api",
+										"auth",
+										"me"
+									]
 								}
 							},
 							"status": "Unauthorized",
 							"code": 401,
 							"_postman_previewlanguage": "json",
 							"header": [
-								{ "key": "Content-Type", "value": "application/json; charset=utf-8" }
+								{
+									"key": "Content-Type",
+									"value": "application/json; charset=utf-8"
+								}
 							],
 							"cookie": [],
 							"body": "{\n    \"error\": \"Unauthorized. Session not found.\"\n}"
@@ -369,15 +465,24 @@
 								"header": [],
 								"url": {
 									"raw": "{{baseUrl}}/api/admin/users",
-									"host": ["{{baseUrl}}"],
-									"path": ["api", "admin", "users"]
+									"host": [
+										"{{baseUrl}}"
+									],
+									"path": [
+										"api",
+										"admin",
+										"users"
+									]
 								}
 							},
 							"status": "OK",
 							"code": 200,
 							"_postman_previewlanguage": "json",
 							"header": [
-								{ "key": "Content-Type", "value": "application/json; charset=utf-8" }
+								{
+									"key": "Content-Type",
+									"value": "application/json; charset=utf-8"
+								}
 							],
 							"cookie": [],
 							"body": "[\n    {\n        \"id\": \"1294e8df-18ed-402a-8080-f94be8679b6b\",\n        \"username\": \"admin\",\n        \"email\": \"admin@company.local\",\n        \"displayName\": \"System Administrator\",\n        \"jobTitle\": \"Administrator\",\n        \"isAdmin\": true,\n        \"isActive\": true,\n        \"createdAt\": \"2026-08-27T15:00:00.000Z\",\n        \"managerIds\": [],\n        \"employeeIds\": [\"5a11...employee\"]\n    }\n]"
@@ -389,15 +494,24 @@
 								"header": [],
 								"url": {
 									"raw": "{{baseUrl}}/api/admin/users",
-									"host": ["{{baseUrl}}"],
-									"path": ["api", "admin", "users"]
+									"host": [
+										"{{baseUrl}}"
+									],
+									"path": [
+										"api",
+										"admin",
+										"users"
+									]
 								}
 							},
 							"status": "Forbidden",
 							"code": 403,
 							"_postman_previewlanguage": "json",
 							"header": [
-								{ "key": "Content-Type", "value": "application/json; charset=utf-8" }
+								{
+									"key": "Content-Type",
+									"value": "application/json; charset=utf-8"
+								}
 							],
 							"cookie": [],
 							"body": "{\n    \"error\": \"Access denied. Admin privileges required.\"\n}"
@@ -427,7 +541,10 @@
 					"request": {
 						"method": "POST",
 						"header": [
-							{ "key": "Content-Type", "value": "application/json" }
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
 						],
 						"body": {
 							"mode": "raw",
@@ -457,7 +574,10 @@
 							"originalRequest": {
 								"method": "POST",
 								"header": [
-									{ "key": "Content-Type", "value": "application/json" }
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
 								],
 								"body": {
 									"mode": "raw",
@@ -465,15 +585,24 @@
 								},
 								"url": {
 									"raw": "{{baseUrl}}/api/admin/users",
-									"host": ["{{baseUrl}}"],
-									"path": ["api", "admin", "users"]
+									"host": [
+										"{{baseUrl}}"
+									],
+									"path": [
+										"api",
+										"admin",
+										"users"
+									]
 								}
 							},
 							"status": "Created",
 							"code": 201,
 							"_postman_previewlanguage": "json",
 							"header": [
-								{ "key": "Content-Type", "value": "application/json; charset=utf-8" }
+								{
+									"key": "Content-Type",
+									"value": "application/json; charset=utf-8"
+								}
 							],
 							"cookie": [],
 							"body": "{\n    \"message\": \"User provisioned successfully.\",\n    \"userId\": \"a3f1c2e4-9b8d-4a7e-8c1f-2d3e4f5a6b7c\"\n}"
@@ -483,7 +612,10 @@
 							"originalRequest": {
 								"method": "POST",
 								"header": [
-									{ "key": "Content-Type", "value": "application/json" }
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
 								],
 								"body": {
 									"mode": "raw",
@@ -491,15 +623,24 @@
 								},
 								"url": {
 									"raw": "{{baseUrl}}/api/admin/users",
-									"host": ["{{baseUrl}}"],
-									"path": ["api", "admin", "users"]
+									"host": [
+										"{{baseUrl}}"
+									],
+									"path": [
+										"api",
+										"admin",
+										"users"
+									]
 								}
 							},
 							"status": "Bad Request",
 							"code": 400,
 							"_postman_previewlanguage": "json",
 							"header": [
-								{ "key": "Content-Type", "value": "application/json; charset=utf-8" }
+								{
+									"key": "Content-Type",
+									"value": "application/json; charset=utf-8"
+								}
 							],
 							"cookie": [],
 							"body": "{\n    \"error\": \"Username already exists.\"\n}"
@@ -529,7 +670,10 @@
 					"request": {
 						"method": "POST",
 						"header": [
-							{ "key": "Content-Type", "value": "application/json" }
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
 						],
 						"body": {
 							"mode": "raw",
@@ -560,7 +704,10 @@
 					"request": {
 						"method": "PUT",
 						"header": [
-							{ "key": "Content-Type", "value": "application/json" }
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
 						],
 						"body": {
 							"mode": "raw",
@@ -597,7 +744,10 @@
 							"originalRequest": {
 								"method": "PUT",
 								"header": [
-									{ "key": "Content-Type", "value": "application/json" }
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
 								],
 								"body": {
 									"mode": "raw",
@@ -605,16 +755,31 @@
 								},
 								"url": {
 									"raw": "{{baseUrl}}/api/admin/users/:id",
-									"host": ["{{baseUrl}}"],
-									"path": ["api", "admin", "users", ":id"],
-									"variable": [{ "key": "id", "value": "YOUR_OWN_USER_ID" }]
+									"host": [
+										"{{baseUrl}}"
+									],
+									"path": [
+										"api",
+										"admin",
+										"users",
+										":id"
+									],
+									"variable": [
+										{
+											"key": "id",
+											"value": "YOUR_OWN_USER_ID"
+										}
+									]
 								}
 							},
 							"status": "Bad Request",
 							"code": 400,
 							"_postman_previewlanguage": "json",
 							"header": [
-								{ "key": "Content-Type", "value": "application/json; charset=utf-8" }
+								{
+									"key": "Content-Type",
+									"value": "application/json; charset=utf-8"
+								}
 							],
 							"cookie": [],
 							"body": "{\n    \"error\": \"You cannot remove your own admin privileges or deactivate your own account. Ask another administrator to do this for you.\"\n}"
@@ -639,7 +804,10 @@
 					"request": {
 						"method": "POST",
 						"header": [
-							{ "key": "Content-Type", "value": "application/json" }
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
 						],
 						"body": {
 							"mode": "raw",
@@ -669,7 +837,10 @@
 							"originalRequest": {
 								"method": "POST",
 								"header": [
-									{ "key": "Content-Type", "value": "application/json" }
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
 								],
 								"body": {
 									"mode": "raw",
@@ -677,15 +848,24 @@
 								},
 								"url": {
 									"raw": "{{baseUrl}}/api/admin/managers",
-									"host": ["{{baseUrl}}"],
-									"path": ["api", "admin", "managers"]
+									"host": [
+										"{{baseUrl}}"
+									],
+									"path": [
+										"api",
+										"admin",
+										"managers"
+									]
 								}
 							},
 							"status": "Created",
 							"code": 201,
 							"_postman_previewlanguage": "json",
 							"header": [
-								{ "key": "Content-Type", "value": "application/json; charset=utf-8" }
+								{
+									"key": "Content-Type",
+									"value": "application/json; charset=utf-8"
+								}
 							],
 							"cookie": [],
 							"body": "{\n    \"message\": \"Manager assigned successfully.\"\n}"
@@ -695,7 +875,10 @@
 							"originalRequest": {
 								"method": "POST",
 								"header": [
-									{ "key": "Content-Type", "value": "application/json" }
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
 								],
 								"body": {
 									"mode": "raw",
@@ -703,15 +886,24 @@
 								},
 								"url": {
 									"raw": "{{baseUrl}}/api/admin/managers",
-									"host": ["{{baseUrl}}"],
-									"path": ["api", "admin", "managers"]
+									"host": [
+										"{{baseUrl}}"
+									],
+									"path": [
+										"api",
+										"admin",
+										"managers"
+									]
 								}
 							},
 							"status": "Bad Request",
 							"code": 400,
 							"_postman_previewlanguage": "json",
 							"header": [
-								{ "key": "Content-Type", "value": "application/json; charset=utf-8" }
+								{
+									"key": "Content-Type",
+									"value": "application/json; charset=utf-8"
+								}
 							],
 							"cookie": [],
 							"body": "{\n    \"error\": \"Cannot assign manager: relationship would create a management hierarchy loop.\"\n}"
@@ -723,7 +915,10 @@
 					"request": {
 						"method": "DELETE",
 						"header": [
-							{ "key": "Content-Type", "value": "application/json" }
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
 						],
 						"body": {
 							"mode": "raw",
@@ -762,8 +957,15 @@
 						"header": [],
 						"url": {
 							"raw": "{{baseUrl}}/api/users/me/team",
-							"host": ["{{baseUrl}}"],
-							"path": ["api", "users", "me", "team"]
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"users",
+								"me",
+								"team"
+							]
 						},
 						"description": "Returns the people who report **directly** to the logged-in user, derived live from `manager_employee` (there's no stored \"is a manager\" flag — you're a manager purely because this list is non-empty). Used by the frontend to compute `isManager`.\n\n**Responses**\n- `200` — array of `{ id, username, email, displayName, jobTitle, isAdmin }` (empty array if you manage no one)"
 					},
@@ -776,8 +978,15 @@
 						"header": [],
 						"url": {
 							"raw": "{{baseUrl}}/api/users/me/managers",
-							"host": ["{{baseUrl}}"],
-							"path": ["api", "users", "me", "managers"]
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"users",
+								"me",
+								"managers"
+							]
 						},
 						"description": "Returns everyone who directly manages the logged-in user. Can be more than one — an employee having multiple managers is a supported case, not an edge case.\n\n**Responses**\n- `200` — array of `{ id, username, email, displayName, jobTitle, isAdmin }` (empty array if you have no manager)"
 					},
@@ -790,8 +999,16 @@
 						"header": [],
 						"url": {
 							"raw": "{{baseUrl}}/api/users/me/team/all",
-							"host": ["{{baseUrl}}"],
-							"path": ["api", "users", "me", "team", "all"]
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"users",
+								"me",
+								"team",
+								"all"
+							]
 						},
 						"description": "Like **Get My Direct Reports**, but walks the full hierarchy with a `WITH RECURSIVE` query — direct reports, their reports, and so on. Backs the **Team Directory** frontend view. De-duplicated even if someone is reachable through more than one management chain.\n\n**Responses**\n- `200` — array of `{ id, username, email, displayName, jobTitle, isAdmin }`"
 					},
@@ -804,10 +1021,21 @@
 						"header": [],
 						"url": {
 							"raw": "{{baseUrl}}/api/users/me/assignees?projectId={{projectId}}",
-							"host": ["{{baseUrl}}"],
-							"path": ["api", "users", "me", "assignees"],
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"users",
+								"me",
+								"assignees"
+							],
 							"query": [
-								{ "key": "projectId", "value": "{{projectId}}", "description": "Optional. Include to also pull in this project's members as candidates." }
+								{
+									"key": "projectId",
+									"value": "{{projectId}}",
+									"description": "Optional. Include to also pull in this project's members as candidates."
+								}
 							]
 						},
 						"description": "Populates the assignee dropdown shown in the task create/edit modal: always includes yourself and your direct reports; if `projectId` is given, also includes that project's members (de-duplicated). This is deliberately the same rule set `isValidAssignee` enforces server-side on task create/update, so the dropdown never offers a choice the backend would reject.\n\nOmit `projectId` (or drop the query string entirely) to get just yourself + direct reports, useful outside a project context.\n\n**Responses**\n- `200` — array of `{ id, username, email, displayName, jobTitle, isAdmin }`\n- `404` — a `projectId` was given but you don't own it and aren't a member (same check task creation uses)"
@@ -820,16 +1048,31 @@
 								"header": [],
 								"url": {
 									"raw": "{{baseUrl}}/api/users/me/assignees?projectId=00000000-0000-0000-0000-000000000000",
-									"host": ["{{baseUrl}}"],
-									"path": ["api", "users", "me", "assignees"],
-									"query": [{ "key": "projectId", "value": "00000000-0000-0000-0000-000000000000" }]
+									"host": [
+										"{{baseUrl}}"
+									],
+									"path": [
+										"api",
+										"users",
+										"me",
+										"assignees"
+									],
+									"query": [
+										{
+											"key": "projectId",
+											"value": "00000000-0000-0000-0000-000000000000"
+										}
+									]
 								}
 							},
 							"status": "Not Found",
 							"code": 404,
 							"_postman_previewlanguage": "json",
 							"header": [
-								{ "key": "Content-Type", "value": "application/json; charset=utf-8" }
+								{
+									"key": "Content-Type",
+									"value": "application/json; charset=utf-8"
+								}
 							],
 							"cookie": [],
 							"body": "{\n    \"error\": \"Project not found or unauthorized.\"\n}"
@@ -843,8 +1086,14 @@
 						"header": [],
 						"url": {
 							"raw": "{{baseUrl}}/api/reports/manager",
-							"host": ["{{baseUrl}}"],
-							"path": ["api", "reports", "manager"]
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"reports",
+								"manager"
+							]
 						},
 						"description": "Skip-level performance rollup across every direct and indirect report (via `getRecursiveReports`) — a summary block plus one stats entry per report (task counts by status, completion rate, overdue count, total time logged, and that report's own list of managers).\n\n**⚠️ Known scoping gap (documented, not fixed as of this API version)**: per-report stats are computed with `SELECT ... FROM tasks WHERE assignee_id = ?` and are **not** filtered by project visibility — they include every task ever assigned to that person company-wide, even ones created by a completely unrelated manager in a project you have no access to. Verified: a manager whose only relationship to an employee is via `manager_employee` will see that employee's *combined* task/time totals from every manager who has ever assigned them anything, not just their own. Contrast with **Get Project Time Rollup** below, which *is* correctly scoped to one project's visibility. Treat the numbers here as \"this person's total workload across the company,\" not \"work I personally assigned or can see.\"\n\n**Responses**\n- `200` — `{ summary: { totalReports, teamTotalTasks, teamCompletedTasks, teamCompletionRate, teamOverdueTasks, teamTotalTimeLogged }, reports: [{ user, managers: [...], stats: { totalTasks, completedTasks, inProgressTasks, todoTasks, overdueTasks, completionRate, totalTimeLogged } }] }` (empty `reports` array if you manage no one)"
 					},
@@ -857,10 +1106,16 @@
 						"header": [],
 						"url": {
 							"raw": "{{baseUrl}}/api/users/all",
-							"host": ["{{baseUrl}}"],
-							"path": ["api", "users", "all"]
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"users",
+								"all"
+							]
 						},
-						"description": "Lists every active user in the company (id, username, displayName, jobTitle, email) — used to populate the \"add teammate to project\" candidate picker. **Any authenticated user can call this**, not just admins or managers; there's no scoping to the caller's own reports or existing projects. Reasonable for an internal tool's people-picker, but worth confirming that company-wide visibility (including everyone's email) is the intended scope.\n\n**Responses**\n- `200` — array of `{ id, username, displayName, jobTitle, email }`"
+						"description": "Lists users visible to the caller (id, username, displayName, jobTitle, email) — used to populate the \"add teammate to project\" candidate picker.\n\n**Scoped**: admins get the full active-user directory. Non-admins get: themselves, every report under them at any depth, every manager above them at any depth, co-members of any project they're in, and owners of projects they're a member of. Backed by `getVisibleCompanyUsers()` (`server/lib/hierarchy.js`), a single query using two `WITH RECURSIVE` CTEs — so a manager sees skip-level reports (their report's own reports), not just direct ones. Confirmed live with a 3-level chain (lead → report → skip-level report): the lead's directory call correctly included the skip-level person.\n\n**Responses**\n- `200` — array of `{ id, username, displayName, jobTitle, email }`, scope depending on caller as above"
 					},
 					"response": []
 				}
@@ -912,7 +1167,10 @@
 					"request": {
 						"method": "POST",
 						"header": [
-							{ "key": "Content-Type", "value": "application/json" }
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
 						],
 						"body": {
 							"mode": "raw",
@@ -941,7 +1199,10 @@
 							"originalRequest": {
 								"method": "POST",
 								"header": [
-									{ "key": "Content-Type", "value": "application/json" }
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
 								],
 								"body": {
 									"mode": "raw",
@@ -949,15 +1210,23 @@
 								},
 								"url": {
 									"raw": "{{baseUrl}}/api/projects",
-									"host": ["{{baseUrl}}"],
-									"path": ["api", "projects"]
+									"host": [
+										"{{baseUrl}}"
+									],
+									"path": [
+										"api",
+										"projects"
+									]
 								}
 							},
 							"status": "Created",
 							"code": 201,
 							"_postman_previewlanguage": "json",
 							"header": [
-								{ "key": "Content-Type", "value": "application/json; charset=utf-8" }
+								{
+									"key": "Content-Type",
+									"value": "application/json; charset=utf-8"
+								}
 							],
 							"cookie": [],
 							"body": "{\n    \"id\": \"b334d8fb-41a1-423e-aa0c-26ad710887b5\",\n    \"name\": \"Enterprise Portal\",\n    \"description\": \"\",\n    \"url\": \"\",\n    \"github\": \"\",\n    \"ownerId\": \"1294e8df-18ed-402a-8080-f94be8679b6b\",\n    \"createdAt\": \"2026-08-27T15:51:52.135Z\",\n    \"members\": [],\n    \"tasks\": []\n}"
@@ -969,7 +1238,10 @@
 					"request": {
 						"method": "PUT",
 						"header": [
-							{ "key": "Content-Type", "value": "application/json" }
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
 						],
 						"body": {
 							"mode": "raw",
@@ -1005,7 +1277,10 @@
 							"originalRequest": {
 								"method": "PUT",
 								"header": [
-									{ "key": "Content-Type", "value": "application/json" }
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
 								],
 								"body": {
 									"mode": "raw",
@@ -1013,16 +1288,30 @@
 								},
 								"url": {
 									"raw": "{{baseUrl}}/api/projects/:id",
-									"host": ["{{baseUrl}}"],
-									"path": ["api", "projects", ":id"],
-									"variable": [{ "key": "id", "value": "{{projectId}}" }]
+									"host": [
+										"{{baseUrl}}"
+									],
+									"path": [
+										"api",
+										"projects",
+										":id"
+									],
+									"variable": [
+										{
+											"key": "id",
+											"value": "{{projectId}}"
+										}
+									]
 								}
 							},
 							"status": "Forbidden",
 							"code": 403,
 							"_postman_previewlanguage": "json",
 							"header": [
-								{ "key": "Content-Type", "value": "application/json; charset=utf-8" }
+								{
+									"key": "Content-Type",
+									"value": "application/json; charset=utf-8"
+								}
 							],
 							"cookie": [],
 							"body": "{\n    \"error\": \"Forbidden. Only the project owner can edit project details.\"\n}"
@@ -1034,7 +1323,10 @@
 					"request": {
 						"method": "POST",
 						"header": [
-							{ "key": "Content-Type", "value": "application/json" }
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
 						],
 						"body": {
 							"mode": "raw",
@@ -1047,10 +1339,20 @@
 						},
 						"url": {
 							"raw": "{{baseUrl}}/api/projects/:id/members",
-							"host": ["{{baseUrl}}"],
-							"path": ["api", "projects", ":id", "members"],
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"projects",
+								":id",
+								"members"
+							],
 							"variable": [
-								{ "key": "id", "value": "{{projectId}}" }
+								{
+									"key": "id",
+									"value": "{{projectId}}"
+								}
 							]
 						},
 						"description": "Adds an active user as a member of the project — from then on they get full board visibility (every task, not just ones assigned to them) per the collaborative-project design. **Owner only.**\n\n**⚠️ No hierarchy check**: unlike task-assignment (`isValidAssignee`, which restricts to self/member/direct-report), this endpoint lets an owner add **any** active user in the company, not just their own direct reports — despite \"manager adds their own report\" being the original design intent. Confirmed: an owner with zero management relationship to a user can still add them. Worth knowing if you're relying on org-hierarchy as an access boundary.\n\n**Responses**\n- `201` — `{ message, members: [{ id, username, displayName, jobTitle, email, joinedAt }] }` (full updated member list)\n- `400` — missing `userId`\n- `403` — caller is not the project owner\n- `404` — project doesn't exist, or `userId` doesn't match an active user"
@@ -1061,7 +1363,10 @@
 							"originalRequest": {
 								"method": "POST",
 								"header": [
-									{ "key": "Content-Type", "value": "application/json" }
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
 								],
 								"body": {
 									"mode": "raw",
@@ -1069,16 +1374,31 @@
 								},
 								"url": {
 									"raw": "{{baseUrl}}/api/projects/:id/members",
-									"host": ["{{baseUrl}}"],
-									"path": ["api", "projects", ":id", "members"],
-									"variable": [{ "key": "id", "value": "{{projectId}}" }]
+									"host": [
+										"{{baseUrl}}"
+									],
+									"path": [
+										"api",
+										"projects",
+										":id",
+										"members"
+									],
+									"variable": [
+										{
+											"key": "id",
+											"value": "{{projectId}}"
+										}
+									]
 								}
 							},
 							"status": "Forbidden",
 							"code": 403,
 							"_postman_previewlanguage": "json",
 							"header": [
-								{ "key": "Content-Type", "value": "application/json; charset=utf-8" }
+								{
+									"key": "Content-Type",
+									"value": "application/json; charset=utf-8"
+								}
 							],
 							"cookie": [],
 							"body": "{\n    \"error\": \"Forbidden. Only the project owner can add project members.\"\n}"
@@ -1092,11 +1412,25 @@
 						"header": [],
 						"url": {
 							"raw": "{{baseUrl}}/api/projects/:id/members/:userId",
-							"host": ["{{baseUrl}}"],
-							"path": ["api", "projects", ":id", "members", ":userId"],
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"projects",
+								":id",
+								"members",
+								":userId"
+							],
 							"variable": [
-								{ "key": "id", "value": "{{projectId}}" },
-								{ "key": "userId", "value": "{{employeeUserId}}" }
+								{
+									"key": "id",
+									"value": "{{projectId}}"
+								},
+								{
+									"key": "userId",
+									"value": "{{employeeUserId}}"
+								}
 							]
 						},
 						"description": "Revokes a member's access to the project (they immediately lose the full-board visibility membership granted). **Owner only**, and the owner is explicitly protected from removing themselves — there's no way to leave your own project via this endpoint (delete the project instead if that's the goal).\n\n**Responses**\n- `200` — `{ message, members: [...] }` (full updated member list, always returned even if the given `userId` wasn't a member)\n- `400` — attempted to remove the project owner\n- `403` — caller is not the project owner\n- `404` — project doesn't exist"
@@ -1109,11 +1443,25 @@
 								"header": [],
 								"url": {
 									"raw": "{{baseUrl}}/api/projects/:id/members/:userId",
-									"host": ["{{baseUrl}}"],
-									"path": ["api", "projects", ":id", "members", ":userId"],
+									"host": [
+										"{{baseUrl}}"
+									],
+									"path": [
+										"api",
+										"projects",
+										":id",
+										"members",
+										":userId"
+									],
 									"variable": [
-										{ "key": "id", "value": "{{projectId}}" },
-										{ "key": "userId", "value": "OWNER_USER_ID" }
+										{
+											"key": "id",
+											"value": "{{projectId}}"
+										},
+										{
+											"key": "userId",
+											"value": "OWNER_USER_ID"
+										}
 									]
 								}
 							},
@@ -1121,7 +1469,10 @@
 							"code": 400,
 							"_postman_previewlanguage": "json",
 							"header": [
-								{ "key": "Content-Type", "value": "application/json; charset=utf-8" }
+								{
+									"key": "Content-Type",
+									"value": "application/json; charset=utf-8"
+								}
 							],
 							"cookie": [],
 							"body": "{\n    \"error\": \"Project owner cannot be removed from project members.\"\n}"
@@ -1135,10 +1486,20 @@
 						"header": [],
 						"url": {
 							"raw": "{{baseUrl}}/api/projects/:id/time-rollup",
-							"host": ["{{baseUrl}}"],
-							"path": ["api", "projects", ":id", "time-rollup"],
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"projects",
+								":id",
+								"time-rollup"
+							],
 							"variable": [
-								{ "key": "id", "value": "{{projectId}}" }
+								{
+									"key": "id",
+									"value": "{{projectId}}"
+								}
 							]
 						},
 						"description": "Aggregates logged time for this **one project only** — correctly scoped by `WHERE project_id = ?` throughout (contrast with **Get Manager Performance Rollup** in the Team & Hierarchy folder, which is not project-scoped). Requires project ownership or membership.\n\nReturns four views of the same underlying `time_sessions`/`tasks` data:\n- `totalProjectTimeSeconds` — sum of `time_logged` across every task in the project\n- `memberRollup` — total time + task count per assignee, sorted highest first\n- `taskRollup` — top 20 tasks by time logged (only tasks with `time_logged > 0`)\n- `sessions` — the 50 most recent individual timer sessions, newest first\n\n**Responses**\n- `200` — `{ projectId, projectName, totalProjectTimeSeconds, memberRollup: [...], taskRollup: [...], sessions: [...] }`\n- `404` — project doesn't exist, or caller isn't the owner/a member"
@@ -1200,7 +1561,10 @@
 					"request": {
 						"method": "POST",
 						"header": [
-							{ "key": "Content-Type", "value": "application/json" }
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
 						],
 						"body": {
 							"mode": "raw",
@@ -1237,7 +1601,10 @@
 							"originalRequest": {
 								"method": "POST",
 								"header": [
-									{ "key": "Content-Type", "value": "application/json" }
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
 								],
 								"body": {
 									"mode": "raw",
@@ -1245,16 +1612,31 @@
 								},
 								"url": {
 									"raw": "{{baseUrl}}/api/projects/:projectId/tasks",
-									"host": ["{{baseUrl}}"],
-									"path": ["api", "projects", ":projectId", "tasks"],
-									"variable": [{ "key": "projectId", "value": "{{projectId}}" }]
+									"host": [
+										"{{baseUrl}}"
+									],
+									"path": [
+										"api",
+										"projects",
+										":projectId",
+										"tasks"
+									],
+									"variable": [
+										{
+											"key": "projectId",
+											"value": "{{projectId}}"
+										}
+									]
 								}
 							},
 							"status": "Bad Request",
 							"code": 400,
 							"_postman_previewlanguage": "json",
 							"header": [
-								{ "key": "Content-Type", "value": "application/json; charset=utf-8" }
+								{
+									"key": "Content-Type",
+									"value": "application/json; charset=utf-8"
+								}
 							],
 							"cookie": [],
 							"body": "{\n    \"error\": \"Invalid assigneeId. Assignee must be an active user who is a project member or your direct report.\"\n}"
@@ -1266,7 +1648,10 @@
 					"request": {
 						"method": "PUT",
 						"header": [
-							{ "key": "Content-Type", "value": "application/json" }
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
 						],
 						"body": {
 							"mode": "raw",
@@ -1309,7 +1694,10 @@
 					"request": {
 						"method": "POST",
 						"header": [
-							{ "key": "Content-Type", "value": "application/json" }
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
 						],
 						"body": {
 							"mode": "raw",
@@ -1339,7 +1727,7 @@
 								}
 							]
 						},
-						"description": "One endpoint, three `action` values — pick one per call by editing the body:\n- `\"action\": \"status\", \"value\": \"todo\" | \"in-progress\" | \"done\"` — bulk status change (stamps/clears `completedAt` per task, same as a single update)\n- `\"action\": \"priority\", \"value\": \"low\" | \"medium\" | \"high\"` — bulk priority change\n- `\"action\": \"delete\"` (`value` ignored) — bulk permanent delete\n\nSee the saved example responses on this request for the priority and delete variants. Requires project ownership/membership; `taskIds` outside the given `projectId` are silently skipped rather than erroring.\n\n**Responses**\n- `200` — the project's full remaining task list after the operation\n- `400` — empty/missing `taskIds`, or missing `action`\n- `404` — project not found or caller has no access to it"
+						"description": "One endpoint, four `action` values — pick one per call by editing the body:\n- `\"action\": \"status\", \"value\": \"todo\" | \"in-progress\" | \"done\"` — bulk status change (stamps/clears `completedAt` per task, same as a single update). Also fires a `task_completed` notification per task that newly reaches `done` (to the task's creator, if not the caller).\n- `\"action\": \"priority\", \"value\": \"low\" | \"medium\" | \"high\"` — bulk priority change, no notification\n- `\"action\": \"assignee\", \"value\": \"<userId>\"` — bulk reassignment. `value` is validated once up front with the same `isValidAssignee()` used by single-task assignment (must be a project member or a direct report of the caller) — an invalid target rejects the whole call with `400` before touching any task, rather than silently skipping tasks one by one. On success, fires a `task_assigned` notification per task to the new assignee (unless it's the caller or unchanged).\n- `\"action\": \"delete\"` (`value` ignored) — bulk permanent delete\n\nSee the saved example responses on this request for the priority, delete, and invalid-assignee variants. Requires project ownership/membership; `taskIds` outside the given `projectId` are silently skipped rather than erroring (same behavior as before, applies to all four actions).\n\n**Responses**\n- `200` — the project's full remaining task list after the operation\n- `400` — empty/missing `taskIds`, missing `action`, or (for `assignee`) an invalid target\n- `404` — project not found or caller has no access to it"
 					},
 					"response": [
 						{
@@ -1347,7 +1735,10 @@
 							"originalRequest": {
 								"method": "POST",
 								"header": [
-									{ "key": "Content-Type", "value": "application/json" }
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
 								],
 								"body": {
 									"mode": "raw",
@@ -1355,16 +1746,32 @@
 								},
 								"url": {
 									"raw": "{{baseUrl}}/api/projects/:projectId/tasks/bulk",
-									"host": ["{{baseUrl}}"],
-									"path": ["api", "projects", ":projectId", "tasks", "bulk"],
-									"variable": [{ "key": "projectId", "value": "{{projectId}}" }]
+									"host": [
+										"{{baseUrl}}"
+									],
+									"path": [
+										"api",
+										"projects",
+										":projectId",
+										"tasks",
+										"bulk"
+									],
+									"variable": [
+										{
+											"key": "projectId",
+											"value": "{{projectId}}"
+										}
+									]
 								}
 							},
 							"status": "OK",
 							"code": 200,
 							"_postman_previewlanguage": "json",
 							"header": [
-								{ "key": "Content-Type", "value": "application/json; charset=utf-8" }
+								{
+									"key": "Content-Type",
+									"value": "application/json; charset=utf-8"
+								}
 							],
 							"cookie": [],
 							"body": "[\n    {\n        \"id\": \"0e48f7a5-99c2-463e-ae9a-dad00a2617ed\",\n        \"title\": \"Implement User Authentication\",\n        \"priority\": \"low\",\n        \"status\": \"in-progress\"\n    }\n]"
@@ -1374,7 +1781,10 @@
 							"originalRequest": {
 								"method": "POST",
 								"header": [
-									{ "key": "Content-Type", "value": "application/json" }
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
 								],
 								"body": {
 									"mode": "raw",
@@ -1382,16 +1792,32 @@
 								},
 								"url": {
 									"raw": "{{baseUrl}}/api/projects/:projectId/tasks/bulk",
-									"host": ["{{baseUrl}}"],
-									"path": ["api", "projects", ":projectId", "tasks", "bulk"],
-									"variable": [{ "key": "projectId", "value": "{{projectId}}" }]
+									"host": [
+										"{{baseUrl}}"
+									],
+									"path": [
+										"api",
+										"projects",
+										":projectId",
+										"tasks",
+										"bulk"
+									],
+									"variable": [
+										{
+											"key": "projectId",
+											"value": "{{projectId}}"
+										}
+									]
 								}
 							},
 							"status": "OK",
 							"code": 200,
 							"_postman_previewlanguage": "json",
 							"header": [
-								{ "key": "Content-Type", "value": "application/json; charset=utf-8" }
+								{
+									"key": "Content-Type",
+									"value": "application/json; charset=utf-8"
+								}
 							],
 							"cookie": [],
 							"body": "[]"
@@ -1401,7 +1827,10 @@
 							"originalRequest": {
 								"method": "POST",
 								"header": [
-									{ "key": "Content-Type", "value": "application/json" }
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
 								],
 								"body": {
 									"mode": "raw",
@@ -1409,19 +1838,81 @@
 								},
 								"url": {
 									"raw": "{{baseUrl}}/api/projects/:projectId/tasks/bulk",
-									"host": ["{{baseUrl}}"],
-									"path": ["api", "projects", ":projectId", "tasks", "bulk"],
-									"variable": [{ "key": "projectId", "value": "{{projectId}}" }]
+									"host": [
+										"{{baseUrl}}"
+									],
+									"path": [
+										"api",
+										"projects",
+										":projectId",
+										"tasks",
+										"bulk"
+									],
+									"variable": [
+										{
+											"key": "projectId",
+											"value": "{{projectId}}"
+										}
+									]
 								}
 							},
 							"status": "Not Found",
 							"code": 404,
 							"_postman_previewlanguage": "json",
 							"header": [
-								{ "key": "Content-Type", "value": "application/json; charset=utf-8" }
+								{
+									"key": "Content-Type",
+									"value": "application/json; charset=utf-8"
+								}
 							],
 							"cookie": [],
 							"body": "{\n    \"error\": \"Project not found or unauthorized.\"\n}"
+						},
+						{
+							"name": "400 Bad Request — assignee variant, invalid target",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n    \"taskIds\": [\"{{taskId}}\"],\n    \"action\": \"assignee\",\n    \"value\": \"00000000-0000-0000-0000-000000000000\"\n}"
+								},
+								"url": {
+									"raw": "{{baseUrl}}/api/projects/:projectId/tasks/bulk",
+									"host": [
+										"{{baseUrl}}"
+									],
+									"path": [
+										"api",
+										"projects",
+										":projectId",
+										"tasks",
+										"bulk"
+									],
+									"variable": [
+										{
+											"key": "projectId",
+											"value": "{{projectId}}"
+										}
+									]
+								}
+							},
+							"status": "Bad Request",
+							"code": 400,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json; charset=utf-8"
+								}
+							],
+							"cookie": [],
+							"body": "{\n    \"error\": \"Invalid assignee: must be a project member or your direct report.\"\n}"
 						}
 					]
 				},
@@ -1505,7 +1996,10 @@
 					"request": {
 						"method": "POST",
 						"header": [
-							{ "key": "Content-Type", "value": "application/json" }
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
 						],
 						"body": {
 							"mode": "raw",
@@ -1535,7 +2029,10 @@
 					"request": {
 						"method": "POST",
 						"header": [
-							{ "key": "Content-Type", "value": "application/json" }
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
 						],
 						"body": {
 							"mode": "raw",
@@ -1607,10 +2104,15 @@
 						"header": [],
 						"url": {
 							"raw": "{{baseUrl}}/api/notifications",
-							"host": ["{{baseUrl}}"],
-							"path": ["api", "notifications"]
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"notifications"
+							]
 						},
-						"description": "Returns the caller's 30 most recent notifications plus their current unread count. Notifications are created automatically by the server on: being added to a project (`project_invited`), being assigned a task on create or reassignment (`task_assigned`), a task you created being marked done by someone else (`task_completed`), and every task in a project reaching `done` (`project_completed`, sent to the owner + all members) — there's no manual \"create notification\" endpoint. The actor is never notified about their own action (self-notifications are suppressed server-side).\n\n`project_completed` is guarded against re-notify spam via an internal `completed_notified_at` marker on the project: toggling a task done/undone/done again only fires once per genuine completion, not once per save. It fires from single-task update, task create, task delete, and bulk operations alike — completing a project via any of those paths triggers it.\n\n**⚠️ Known gap**: bulk status changes via **Bulk Task Operations** (Tasks folder) correctly trigger `project_completed` if they finish the project, but still don't trigger the *per-task* `task_assigned`/`task_completed` notifications that single-task updates do.\n\n**Responses**\n- `200` — `{ unreadCount, notifications: [{ id, type, title, body, entityType, entityId, actorName, isRead, createdAt }] }` (empty array if none)"
+						"description": "Returns the caller's 30 most recent notifications plus their current unread count. Notifications are created automatically by the server on: being added to a project (`project_invited`), being assigned a task on create/reassignment or via **Bulk Task Operations**' `assignee` action (`task_assigned`), a task you created being marked done by someone else — including via bulk `status` (`task_completed`), and every task in a project reaching `done` (`project_completed`, sent to the owner + all members) — there's no manual \"create notification\" endpoint. The actor is never notified about their own action (self-notifications are suppressed server-side).\n\n`project_completed` is guarded against re-notify spam via an internal `completed_notified_at` marker on the project: toggling a task done/undone/done again only fires once per genuine completion, not once per save.\n\nFor instant delivery instead of polling, see **Get Live Notification Stream (SSE)** below — `createNotification()` pushes to any open stream for that user at the moment it writes to the DB.\n\n**Responses**\n- `200` — `{ unreadCount, notifications: [{ id, type, title, body, entityType, entityId, actorName, isRead, createdAt }] }` (empty array if none)"
 					},
 					"response": [
 						{
@@ -1620,20 +2122,53 @@
 								"header": [],
 								"url": {
 									"raw": "{{baseUrl}}/api/notifications",
-									"host": ["{{baseUrl}}"],
-									"path": ["api", "notifications"]
+									"host": [
+										"{{baseUrl}}"
+									],
+									"path": [
+										"api",
+										"notifications"
+									]
 								}
 							},
 							"status": "OK",
 							"code": 200,
 							"_postman_previewlanguage": "json",
 							"header": [
-								{ "key": "Content-Type", "value": "application/json; charset=utf-8" }
+								{
+									"key": "Content-Type",
+									"value": "application/json; charset=utf-8"
+								}
 							],
 							"cookie": [],
 							"body": "{\n    \"unreadCount\": 2,\n    \"notifications\": [\n        {\n            \"id\": \"notif-1788173804329-czvz1\",\n            \"type\": \"task_assigned\",\n            \"title\": \"New Task Assigned\",\n            \"body\": \"You were assigned task \\\"Do the work\\\" in project \\\"Alpha Project\\\".\",\n            \"entityType\": \"project\",\n            \"entityId\": \"768ac46d-96c7-4c3f-933b-20d625af7d99\",\n            \"actorName\": \"Alice Admin\",\n            \"isRead\": false,\n            \"createdAt\": \"2026-08-31T10:56:44.329Z\"\n        },\n        {\n            \"id\": \"notif-1788173804230-nyo5j\",\n            \"type\": \"project_invited\",\n            \"title\": \"Added to Project\",\n            \"body\": \"You were added as a collaborator to project \\\"Alpha Project\\\".\",\n            \"entityType\": \"project\",\n            \"entityId\": \"768ac46d-96c7-4c3f-933b-20d625af7d99\",\n            \"actorName\": \"Alice Admin\",\n            \"isRead\": false,\n            \"createdAt\": \"2026-08-31T10:56:44.230Z\"\n        }\n    ]\n}"
 						}
 					]
+				},
+				{
+					"name": "Get Live Notification Stream (SSE)",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Accept",
+								"value": "text/event-stream"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/notifications/stream",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"notifications",
+								"stream"
+							]
+						},
+						"description": "Server-Sent Events stream for real-time notification delivery — replaces (well, supplements) polling **Get My Notifications**. Postman can open this and show raw incoming `data:` lines, but isn't a real EventSource client; use a browser or `curl -N` to see reconnect behavior.\n\nOn connect, immediately sends `data: {\"type\":\"connected\"}`. From then on, any notification created for this user while connected (project invites, task assignment, task/project completion) is pushed instantly as `data: {\"type\":\"notification\",\"notification\":{...}}`, with the same shape as one entry from **Get My Notifications**, `isRead` included. Every 25 seconds the server also writes an SSE comment line (`: heartbeat`) to keep the connection alive through idle-connection timeouts on proxies/load balancers — comment lines are ignored by `EventSource.onmessage`, so they never surface as a fake notification. Confirmed live: held a real connection open past 25s and observed the heartbeat line arrive on schedule. Connection is closed and its registry entry (plus the heartbeat interval) cleaned up on `req.on('close')`.\n\n**Responses**\n- `200` — `text/event-stream`, stays open until the client disconnects\n- `401` — not authenticated"
+					},
+					"response": []
 				},
 				{
 					"name": "Mark Notification As Read",
@@ -1642,10 +2177,20 @@
 						"header": [],
 						"url": {
 							"raw": "{{baseUrl}}/api/notifications/:id/read",
-							"host": ["{{baseUrl}}"],
-							"path": ["api", "notifications", ":id", "read"],
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"notifications",
+								":id",
+								"read"
+							],
 							"variable": [
-								{ "key": "id", "value": "INSERT_NOTIFICATION_ID_HERE" }
+								{
+									"key": "id",
+									"value": "INSERT_NOTIFICATION_ID_HERE"
+								}
 							]
 						},
 						"description": "Marks one notification read. Scoped by `user_id` under the hood, so you can only ever mark your own notifications read — passing another user's notification ID silently affects zero rows rather than erroring, since the query just won't match anything.\n\n**Responses**\n- `200` — `{ \"message\": \"Notification marked as read.\" }` (always, even if the ID didn't match one of yours)"
@@ -1659,8 +2204,14 @@
 						"header": [],
 						"url": {
 							"raw": "{{baseUrl}}/api/notifications/read-all",
-							"host": ["{{baseUrl}}"],
-							"path": ["api", "notifications", "read-all"]
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"notifications",
+								"read-all"
+							]
 						},
 						"description": "Marks every one of the caller's notifications read in one call — what the notification bell's \"Mark all read\" button uses.\n\n**Responses**\n- `200` — `{ \"message\": \"All notifications marked as read.\" }` (always)"
 					},
@@ -1679,10 +2230,16 @@
 						"header": [],
 						"url": {
 							"raw": "{{baseUrl}}/api/kpi/dashboard",
-							"host": ["{{baseUrl}}"],
-							"path": ["api", "kpi", "dashboard"]
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"kpi",
+								"dashboard"
+							]
 						},
-						"description": "Aggregate KPIs powering the Analytics page: overall completion rate, active project count, total time logged, overdue task count, a per-project health breakdown (`on-track` / `at-risk` / `delayed`), and a per-team-member workload breakdown.\n\n**Genuinely org-wide**: the query is `SELECT * FROM projects` with no visibility filter, so every project in the system counts toward these numbers for every caller, matching the \"Executive KPI & Analytics Dashboard\" / \"real-time org-wide KPIs\" framing in the frontend. Verified: an admin and an employee who shares only 1 of the admin's 2 projects both now get `totalProjects: 2` from this endpoint.\n\n**⚠️ Known consequence of being org-wide**: `projectHealthList` includes every project's actual name, and `memberWorkloadList` includes every assignee's display name next to their task/time totals - not just counts. Any authenticated user calling this endpoint can now see the name and workload of every project and every person in the company, including ones they share no project with. Confirmed live: an employee's response included another user's private project by name and that user's exact task/time totals. If per-person/per-project anonymity matters more than a literal org-wide view, this needs a follow-up (e.g. strip names from `memberWorkloadList`/`projectHealthList`, or restrict which fields non-admins receive).\n\n**Responses**\n- `200` — `{ totalProjects, totalTasks, completedTasks, overdueTasks, completionRate, totalTimeLoggedSeconds, projectHealthList: [{ id, name, totalTasks, completedTasks, overdueTasks, completionPct, health }], memberWorkloadList: [{ userId, displayName, totalTasks, pendingTasks, completedTasks, overdueTasks, timeLoggedSeconds }] }` — all fields zero/empty if you have no visible projects"
+						"description": "Aggregate KPIs powering the Analytics page: overall completion rate, active project count, total time logged, overdue task count, a per-project health breakdown (`on-track` / `at-risk` / `delayed`), and a per-team-member workload breakdown.\n\n**Still genuinely org-wide for the numbers**: the underlying query is `SELECT * FROM projects` with no visibility filter, so every project's counts/totals feed the top-level aggregates and every project/person appears in `projectHealthList`/`memberWorkloadList`, for every caller.\n\n**Anonymization for non-admins**: for projects/people the caller can't otherwise access (same boundary as **Get Company User Directory**'s `getVisibleCompanyUsers()`, plus the existing owner/member check for projects), the entry's `id`/`userId` is replaced with a synthetic one (`anon-project-<n>` / `anon-member-<n>`) alongside the redacted `name`/`displayName` (`Workspace Project <n>` / `Team Member <n>`) — the real UUID is never included for something the caller can't access, and the anonymized-project subset is shuffled per request so a specific hidden project isn't reliably trackable across repeated calls by its label. Accessible entries (including a manager's own reports, at any depth) always show real data, even for non-admins. Admins always see everything unredacted. Confirmed live: an admin sees `\"Confidential Project\"`; an outsider sees `{ id: \"anon-project-1\", name: \"Workspace Project 1\" }` for the same underlying project, with the real project id absent from their response entirely; a manager viewing their own direct report's workload row sees that report's real `userId`/name, not a redacted one.\n\n**Responses**\n- `200` — `{ totalProjects, totalTasks, completedTasks, overdueTasks, completionRate, totalTimeLoggedSeconds, projectHealthList: [{ id, name, totalTasks, completedTasks, overdueTasks, completionPct, health }], memberWorkloadList: [{ userId, displayName, totalTasks, pendingTasks, completedTasks, overdueTasks, timeLoggedSeconds }] }` — all fields zero/empty if there are no projects in the system; `id`/`name` and `userId`/`displayName` synthetic+anonymized per the rules above for non-admins on entries outside their visibility boundary"
 					},
 					"response": []
 				}

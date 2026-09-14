@@ -18,7 +18,6 @@ export default function NotificationBell() {
   const [unreadCount, setUnreadCount] = useState(0);
   const [notifications, setNotifications] = useState([]);
   const [isOpen, setIsOpen] = useState(false);
-  const [loading, setLoading] = useState(false);
   const dropdownRef = useRef(null);
   const navigate = useNavigate();
 
@@ -35,10 +34,52 @@ export default function NotificationBell() {
     }
   };
 
+  // Initial fetch & SSE real-time stream subscription
   useEffect(() => {
     fetchNotifications();
-    const interval = setInterval(fetchNotifications, 15000);
-    return () => clearInterval(interval);
+
+    let eventSource = null;
+    try {
+      eventSource = new EventSource('/api/notifications/stream');
+
+      eventSource.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          if (data.type === 'notification' && data.notification) {
+            const notif = data.notification;
+
+            setNotifications(prev => [notif, ...prev.filter(n => n.id !== notif.id)]);
+            setUnreadCount(prev => prev + 1);
+
+            // Native Desktop Browser Notification (when tab is backgrounded)
+            if (document.hidden && window.Notification && window.Notification.permission === 'granted') {
+              new window.Notification(notif.title || 'New Notification', {
+                body: notif.body || '',
+                tag: notif.id
+              });
+            }
+          }
+        } catch (e) {
+          console.error('Error parsing SSE notification payload:', e);
+        }
+      };
+
+      eventSource.onerror = () => {
+        // Don't close() here - EventSource reconnects automatically on error
+        // unless explicitly closed, and the 30s fallback poll below already
+        // covers the gap while it does.
+        console.error('SSE connection error, browser will attempt to reconnect');
+      };
+    } catch (err) {
+      console.error('SSE initialization error:', err);
+    }
+
+    const fallbackInterval = setInterval(fetchNotifications, 30000);
+
+    return () => {
+      if (eventSource) eventSource.close();
+      clearInterval(fallbackInterval);
+    };
   }, []);
 
   useEffect(() => {
